@@ -1852,6 +1852,13 @@ config ACPUCLOCK_LIMIT_768MHZ
 	help
 		Support to limit the CPU frequency at 768MHz.
 
+config ACPUCLOCK_OVERCLOCK
+	bool "Enable CPU overclocking."
+	default y
+	help
+	  Allow the setting of CPU clocks higher than the max set in
+	  the factory.
+
 config HTC_SMEM_MSMC1C2_DEBUG
 	bool "MSMC1/MSMC2 shared memory debug"
 	default n
