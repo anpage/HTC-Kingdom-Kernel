@@ -50,18 +50,13 @@
 #include <linux/preempt.h>
 #include <linux/linkage.h>
 #include <linux/compiler.h>
+#include <linux/irqflags.h>
 #include <linux/thread_info.h>
 #include <linux/kernel.h>
 #include <linux/stringify.h>
 #include <linux/bottom_half.h>
 
 #include <asm/system.h>
-#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#include <linux/smp.h>
-#include "../arch/arm/include/asm/sizes.h"
-#include "../arch/arm/mach-msm/include/mach/msm_iomap.h"
-#include "../arch/arm/mach-msm/include/mach/msm_iomap-8x60.h"
-#endif
 
 /*
  * Must define these before including other files, inline functions need them
@@ -86,15 +81,13 @@
 #include <linux/spinlock_types.h>
 
 /*
- * Pull the arch_spin*() functions/declarations (UP-nondebug doesnt need them):
+ * Pull the arch_spin*() functions/declarations (UP-nondebug doesn't need them):
  */
 #ifdef CONFIG_SMP
 # include <asm/spinlock.h>
 #else
 # include <linux/spinlock_up.h>
 #endif
-
-extern int spin_lock_footprint;
 
 #ifdef CONFIG_DEBUG_SPINLOCK
   extern void __raw_spin_lock_init(raw_spinlock_t *lock, const char *name,
@@ -312,30 +305,15 @@ do {									\
 	raw_spin_lock_nest_lock(spinlock_check(lock), nest_lock);	\
 } while (0)
 
-
 static inline void spin_lock_irq(spinlock_t *lock)
 {
 	raw_spin_lock_irq(&lock->rlock);
-	#ifdef CONFIG_SPINLOCK_FOOTPRINT
-	__asm__ __volatile__ ("mov  %0, pc": "=r" (*(unsigned int *)
-		(MSM_SPIN_LOCK_IRQSAVE_PC_BASE + smp_processor_id()*4)));
-	#endif
 }
 
-#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#define spin_lock_irqsave(lock, flags)				\
-do {								\
-	raw_spin_lock_irqsave(spinlock_check(lock), flags);	\
-	if (spin_lock_footprint)				\
-		__asm__ __volatile__ ("mov  %0, pc": "=r" (*(unsigned int *)\
-                (MSM_SPIN_LOCK_IRQSAVE_PC_BASE + smp_processor_id()*4)));\
-} while (0)
-#else
 #define spin_lock_irqsave(lock, flags)				\
 do {								\
 	raw_spin_lock_irqsave(spinlock_check(lock), flags);	\
 } while (0)
-#endif
 
 #define spin_lock_irqsave_nested(lock, flags, subclass)			\
 do {									\
@@ -354,20 +332,11 @@ static inline void spin_unlock_bh(spinlock_t *lock)
 
 static inline void spin_unlock_irq(spinlock_t *lock)
 {
-	#ifdef CONFIG_SPINLOCK_FOOTPRINT
-	__asm__ __volatile__ ("mov  %0, pc": "=r" (*(unsigned int *)
-		(MSM_SPIN_LOCK_IRQSAVE_PC_BASE + smp_processor_id()*4)));
-	#endif
 	raw_spin_unlock_irq(&lock->rlock);
 }
 
 static inline void spin_unlock_irqrestore(spinlock_t *lock, unsigned long flags)
 {
-	#ifdef CONFIG_SPINLOCK_FOOTPRINT
-	if(spin_lock_footprint)
-		__asm__ __volatile__ ("mov  %0, #0": "=r" (*(unsigned int *)
-		(MSM_SPIN_LOCK_IRQSAVE_PC_BASE + smp_processor_id()*4)));
-	#endif
 	raw_spin_unlock_irqrestore(&lock->rlock, flags);
 }
 

@@ -22,6 +22,7 @@
  * And it's also the same as htc_cable_status_update()
  */
 enum charger_type_t {
+	CHARGER_CLEAR = -2,
 	CHARGER_UNKNOWN = -1,
 	CHARGER_BATTERY = 0,
 	CHARGER_USB,
@@ -42,7 +43,18 @@ enum charger_control_flag {
 	ENABLE_CHARGER,
 	ENABLE_LIMIT_CHARGER,
 	DISABLE_LIMIT_CHARGER,
+#if defined(CONFIG_MACH_PRIMODD)
+	PHONE_CALL_IN,
+	PHONE_CALL_STOP,
+#endif
 	END_CHARGER
+};
+/* context event */
+enum batt_context_event {
+	EVENT_TALK_START = 0,
+	EVENT_TALK_STOP,
+	EVENT_NETWORK_SEARCH_START,
+	EVENT_NETWORK_SEARCH_STOP
 };
 
 /* interface function declaration */

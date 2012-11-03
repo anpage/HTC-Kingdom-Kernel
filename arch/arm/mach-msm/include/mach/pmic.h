@@ -1,34 +1,32 @@
-/* Copyright (c) 2009, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NON-INFRINGEMENT ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
 #ifndef __ARCH_ARM_MACH_PMIC_H
 #define __ARCH_ARM_MACH_PMIC_H
 
+#include <linux/types.h>
+#include <linux/seq_file.h>
+
+enum spkr_ldo_v_sel {
+	VOLT_LEVEL_1_1V,
+	VOLT_LEVEL_1_2V,
+	VOLT_LEVEL_2_0V,
+};
+
+enum hp_spkr_left_right {
+	LEFT_HP_SPKR,
+	RIGHT_HP_SPKR,
+};
 
 enum spkr_left_right {
 	LEFT_SPKR,
@@ -378,7 +376,7 @@ enum pm_vib_mot_pol {
 	PM_VIB_MOT_POL__ACTIVE_LOW,
 };
 
-struct qct_rtc_time {
+struct rtc_time {
 	uint  sec;
 };
 
@@ -464,27 +462,166 @@ enum hsed_period_time {
 	PM_HSED_PERIOD_TIME_16_CLK_CYCLES,
 };
 
-enum high_current_ledtype {
-	PM_FLASH_DRV0_LED,
-	PM_FLASH_DRV1_LED,
-	PM_KBD_DRV_LED,
+enum vreg_lpm_id {
+	VREG_GP1_ID,
+	VREG_GP2_ID,
+	VREG_GP3_ID,
+	VREG_GP4_ID,
+	VREG_GP5_ID,
+	VREG_GP6_ID,
+	VREG_GP7_ID,
+	VREG_GP8_ID,
+	VREG_GP9_ID,
+	VREG_GP10_ID,
+	VREG_GP11_ID,
+	VREG_GP12_ID,
+	VREG_GP13_ID,
+	VREG_GP14_ID,
+	VREG_GP15_ID,
+	VREG_GP16_ID,
+	VREG_GP17_ID,
+	VREG_MDDI_ID,
+	VREG_MPLL_ID,
+	VREG_MSMC1_ID,
+	VREG_MSMC2_ID,
+	VREG_MSME_ID,
+	VREG_RF_ID,
+	VREG_RF1_ID,
+	VREG_RF2_ID,
+	VREG_RFA_ID,
+	VREG_SDCC1_ID,
+	VREG_TCXO_ID,
+	VREG_USB1P8_ID,
+	VREG_USB3P3_ID,
+	VREG_USIM_ID,
+	VREG_WLAN1_ID,
+	VREG_WLAN2_ID,
+	VREG_XO_OUT_D0_ID,
+	VREG_NCP_ID,
+	VREG_LVSW0_ID,
+	VREG_LVSW1_ID,
 };
 
-enum low_current_ledtype {
-	PM_LOW_CURRENT_LED_DRV0,
-	PM_LOW_CURRENT_LED_DRV1,
-	PM_LOW_CURRENT_LED_DRV2,
+enum low_current_led {
+	LOW_CURRENT_LED_DRV0,
+	LOW_CURRENT_LED_DRV1,
+	LOW_CURRENT_LED_DRV2,
 };
 
-enum ext_signal_selection_type {
-	PM_CURRENT_SINK_MANUAL_MODE,
-	PM_CURRENT_SINK_PWM1,
-	PM_CURRENT_SINK_PWM2,
-	PM_CURRENT_SINK_PWM3,
-	PM_CURRENT_SINK_DTEST1,
-	PM_CURRENT_SINK_DTEST2,
-	PM_CURRENT_SINK_DTEST3,
-	PM_CURRENT_SINK_DTEST4,
+enum ext_signal {
+	EXT_SIGNAL_CURRENT_SINK_MANUAL_MODE,
+	EXT_SIGNAL_CURRENT_SINK_PWM1,
+	EXT_SIGNAL_CURRENT_SINK_PWM2,
+	EXT_SIGNAL_CURRENT_SINK_PWM3,
+	EXT_SIGNAL_CURRENT_SINK_DTEST1,
+	EXT_SIGNAL_CURRENT_SINK_DTEST2,
+	EXT_SIGNAL_CURRENT_SINK_DTEST3,
+	EXT_SIGNAL_CURRENT_SINK_DTEST4,
+};
+
+enum high_current_led {
+	HIGH_CURRENT_LED_FLASH_DRV0,
+	HIGH_CURRENT_LED_FLASH_DRV1,
+	HIGH_CURRENT_LED_KBD_DRV,
+};
+
+/* PMIC GPIO */
+enum pmic_gpio {
+	PMIC_GPIO_1,
+	PMIC_GPIO_2,
+	PMIC_GPIO_3,
+	PMIC_GPIO_4,
+	PMIC_GPIO_5,
+	PMIC_GPIO_6,
+	PMIC_GPIO_7,
+	PMIC_GPIO_8,
+	PMIC_GPIO_9,
+	PMIC_GPIO_10,
+	PMIC_GPIO_11,
+};
+
+enum pmic_voltage_src {
+	PMIC_GPIO_VIN0,
+	PMIC_GPIO_VIN1,
+	PMIC_GPIO_VIN2,
+	PMIC_GPIO_VIN3,
+	PMIC_GPIO_VIN4,
+	PMIC_GPIO_VIN5,
+	PMIC_GPIO_VIN6,
+	PMIC_GPIO_VIN7,
+};
+
+enum pmic_io_mode {
+	INPUT_ON,
+	INPUT_OUTPUT_ON,
+	OUTPUT_ON,
+	INPUT_OUTPUT_OFF,
+};
+
+enum pmic_current_pull_up {
+	PULL_UP_30uA,
+	PULL_UP_1_5uA,
+	PULL_UP_31_5uA,
+	PULL_UP_1_5uA_PLUS_30uA_BOOST,
+	PULL_DOWN_10uA,
+	PULL_NO_PULL,
+};
+
+enum pmic_op_buf_drv_strength {
+	BUFFER_OFF,
+	BUFFER_HIGH,
+	BUFFER_MEDIUM,
+	BUFFER_LOW,
+};
+
+enum pmic_output_buffer_config {
+	CONFIG_CMOS,
+	CONFIG_OPEN_DRAIN,
+};
+
+enum pmic_dtest_buf_onoff {
+	DTEST_DISABLE,
+	DTEST_ENABLE,
+};
+
+enum pmic_ext_pin_config {
+	EXT_PIN_ENABLE,
+	/*! Puts EXT_PIN at high Z state & disables the block */
+	EXT_PIN_DISABLE,
+};
+
+enum pmic_source_config {
+	SOURCE_GND,
+	SOURCE_PAIRED_GPIO,
+	SOURCE_SPECIAL_FUNCTION1,
+	SOURCE_SPECIAL_FUNCTION2,
+	SOURCE_DTEST1,
+	SOURCE_DTEST2,
+	SOURCE_DTEST3,
+	SOURCE_DTEST4,
+};
+
+enum pmic_direction_mode {
+	MODE_INPUT,
+	MODE_OTPUT_AND_INPUT_ON,
+	MODE_OUTPUT,
+	MODE_INPUT_AND_OUTPUT_OFF,
+};
+
+struct pm8xxx_gpio_rpc_cfg {
+	enum pmic_gpio			gpio;
+	bool				config_gpio;
+	enum pmic_voltage_src		volt_src;
+	bool				mode_on;
+	enum pmic_io_mode		mode;
+	enum pmic_output_buffer_config	buf_config;
+	bool				invert_ext_pin;
+	enum pmic_current_pull_up	src_pull;
+	enum pmic_op_buf_drv_strength	drv_strength;
+	enum pmic_dtest_buf_onoff	dtest_on;
+	enum pmic_ext_pin_config	ext_config;
+	enum pmic_source_config		src_config;
+	bool				int_polarity;
 };
 
 int pmic_lp_mode_control(enum switch_cmd cmd, enum vreg_lp_id id);
@@ -496,14 +633,14 @@ int pmic_secure_mpp_config_i_sink(enum mpp_which which,
 		enum mpp_i_sink_level level, enum mpp_i_sink_switch onoff);
 int pmic_secure_mpp_config_digital_input(enum mpp_which	which,
 		enum mpp_dlogic_level level, enum mpp_dlogic_in_dbus dbus);
-int pmic_rtc_start(struct qct_rtc_time *time);
+int pmic_rtc_start(struct rtc_time *time);
 int pmic_rtc_stop(void);
-int pmic_rtc_get_time(struct qct_rtc_time *time);
+int pmic_rtc_get_time(struct rtc_time *time);
 int pmic_rtc_enable_alarm(enum rtc_alarm alarm,
-				struct qct_rtc_time *time);
+				struct rtc_time *time);
 int pmic_rtc_disable_alarm(enum rtc_alarm alarm);
 int pmic_rtc_get_alarm_time(enum rtc_alarm alarm,
-				struct qct_rtc_time *time);
+				struct rtc_time *time);
 int pmic_rtc_get_alarm_status(uint *status);
 int pmic_rtc_set_time_adjust(uint adjust);
 int pmic_rtc_get_time_adjust(uint *adjust);
@@ -553,12 +690,6 @@ int pmic_vib_mot_set_polarity(enum pm_vib_mot_pol pol);
 int pmic_vid_en(uint enable);
 int pmic_vid_is_en(uint *enabled);
 int pmic_vid_load_detect_en(uint enable);
-int pmic_high_current_led_set_current(enum high_current_ledtype type, int milliamps);
-int pmic_high_current_led_set_mode(enum high_current_ledtype type, int mode);
-int pmic_high_current_led_set_polarity(enum high_current_ledtype type, enum flash_led_pol pol);
-int pmic_low_current_led_set_ext_signal(enum low_current_ledtype type,
-					enum ext_signal_selection_type signal_type);
-int pmic_low_current_led_set_current(enum low_current_ledtype type, int milliamps);
 
 int pmic_hsed_set_period(
 	enum hsed_controller controller,
@@ -582,4 +713,40 @@ int pmic_hsed_enable(
 	enum hsed_controller controller,
 	enum hsed_enable enable
 );
+
+int pmic_high_current_led_set_current(enum high_current_led led,
+		uint16_t milliamps);
+int pmic_high_current_led_set_polarity(enum high_current_led led,
+		enum flash_led_pol polarity);
+int pmic_high_current_led_set_mode(enum high_current_led led,
+		enum flash_led_mode mode);
+int pmic_lp_force_lpm_control(enum switch_cmd cmd,
+		enum vreg_lpm_id vreg);
+int pmic_low_current_led_set_ext_signal(enum low_current_led led,
+		enum ext_signal sig);
+int pmic_low_current_led_set_current(enum low_current_led led,
+		uint16_t milliamps);
+
+int pmic_spkr_set_vsel_ldo(enum spkr_left_right left_right,
+					enum spkr_ldo_v_sel vlt_cntrl);
+int pmic_spkr_set_boost(enum spkr_left_right left_right, uint enable);
+int pmic_spkr_bypass_en(enum spkr_left_right left_right, uint enable);
+int pmic_hp_spkr_mstr_en(enum hp_spkr_left_right left_right, uint enable);
+int pmic_hp_spkr_mute_en(enum hp_spkr_left_right left_right, uint enable);
+int pmic_hp_spkr_prm_in_en(enum hp_spkr_left_right left_right, uint enable);
+int pmic_hp_spkr_aux_in_en(enum hp_spkr_left_right left_right, uint enable);
+int pmic_hp_spkr_ctrl_prm_gain_input(enum hp_spkr_left_right left_right,
+							uint prm_gain_ctl);
+int pmic_hp_spkr_ctrl_aux_gain_input(enum hp_spkr_left_right left_right,
+							uint aux_gain_ctl);
+int pmic_xo_core_force_enable(uint enable);
+int pmic_gpio_direction_input(unsigned gpio);
+int pmic_gpio_direction_output(unsigned gpio);
+int pmic_gpio_set_value(unsigned gpio, int value);
+int pmic_gpio_get_value(unsigned gpio);
+int pmic_gpio_get_direction(unsigned gpio);
+int pmic_gpio_config(struct pm8xxx_gpio_rpc_cfg *);
+#ifdef CONFIG_PMIC8058
+int pmic8058_dump_gpios(struct seq_file *m, int curr_len, char *gpio_buffer);
+#endif
 #endif

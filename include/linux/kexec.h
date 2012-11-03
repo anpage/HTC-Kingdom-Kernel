@@ -116,6 +116,7 @@ extern asmlinkage long sys_kexec_load(unsigned long entry,
 					unsigned long nr_segments,
 					struct kexec_segment __user *segments,
 					unsigned long flags);
+extern void __weak arch_kexec(void);
 extern int kernel_kexec(void);
 #ifdef CONFIG_COMPAT
 extern asmlinkage long compat_sys_kexec_load(unsigned long entry,
@@ -208,6 +209,7 @@ int __init parse_crashkernel(char *cmdline, unsigned long long system_ram,
 		unsigned long long *crash_size, unsigned long long *crash_base);
 int crash_shrink_memory(unsigned long new_size);
 size_t crash_get_memory_size(void);
+void crash_free_reserved_phys_range(unsigned long begin, unsigned long end);
 
 #else /* !CONFIG_KEXEC */
 struct pt_regs;

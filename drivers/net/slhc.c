@@ -230,7 +230,13 @@ slhc_compress(struct slcompress *comp, unsigned char *icp, int isize,
 	register unsigned long deltaS, deltaA;
 	register short changes = 0;
 	int hlen;
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	unsigned char new_seq[16] = {'\0'};
+#else
 	unsigned char new_seq[16];
+#endif
+
 	register unsigned char *cp = new_seq;
 	struct iphdr *ip;
 	struct tcphdr *th, *oth;
@@ -688,17 +694,7 @@ slhc_toss(struct slcompress *comp)
 	return 0;
 }
 
-
-/* VJ header compression */
-EXPORT_SYMBOL(slhc_init);
-EXPORT_SYMBOL(slhc_free);
-EXPORT_SYMBOL(slhc_remember);
-EXPORT_SYMBOL(slhc_compress);
-EXPORT_SYMBOL(slhc_uncompress);
-EXPORT_SYMBOL(slhc_toss);
-
 #else /* CONFIG_INET */
-
 
 int
 slhc_toss(struct slcompress *comp)
@@ -738,6 +734,10 @@ slhc_init(int rslots, int tslots)
   printk(KERN_DEBUG "Called IP function on non IP-system: slhc_init");
   return NULL;
 }
+
+#endif /* CONFIG_INET */
+
+/* VJ header compression */
 EXPORT_SYMBOL(slhc_init);
 EXPORT_SYMBOL(slhc_free);
 EXPORT_SYMBOL(slhc_remember);
@@ -745,5 +745,4 @@ EXPORT_SYMBOL(slhc_compress);
 EXPORT_SYMBOL(slhc_uncompress);
 EXPORT_SYMBOL(slhc_toss);
 
-#endif /* CONFIG_INET */
 MODULE_LICENSE("Dual BSD/GPL");

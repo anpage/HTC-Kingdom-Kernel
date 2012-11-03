@@ -15,9 +15,14 @@
  */
 
 #ifndef __ASM_ARCH_MSM_DMA_H
+#define __ASM_ARCH_MSM_DMA_H
 
 #include <linux/list.h>
 #include <mach/msm_iomap.h>
+
+#if defined(CONFIG_ARCH_FSM9XXX)
+#include <mach/dma-fsm9xxx.h>
+#endif
 
 struct msm_dmov_errdata {
 	uint32_t flush[6];
@@ -26,7 +31,9 @@ struct msm_dmov_errdata {
 struct msm_dmov_cmd {
 	struct list_head list;
 	unsigned int cmdptr;
+#if defined(CONFIG_ARCH_MSM7X27)
 	unsigned int crci_mask;
+#endif
 	void (*complete_func)(struct msm_dmov_cmd *cmd,
 			      unsigned int result,
 			      struct msm_dmov_errdata *err);
@@ -34,58 +41,59 @@ struct msm_dmov_cmd {
 	void *user;	/* Pointer for caller's reference */
 };
 
+struct msm_dmov_pdata {
+	int sd;
+	size_t sd_size;
+};
+
 void msm_dmov_enqueue_cmd(unsigned id, struct msm_dmov_cmd *cmd);
 void msm_dmov_enqueue_cmd_ext(unsigned id, struct msm_dmov_cmd *cmd);
 void msm_dmov_stop_cmd(unsigned id, struct msm_dmov_cmd *cmd, int graceful);
 void msm_dmov_flush(unsigned int id);
-int msm_dmov_exec_cmd(unsigned id, unsigned int crci_mask, unsigned int cmdptr);
-unsigned int msm_dmov_build_crci_mask(int n, ...);
+int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 
 #define DMOV_CRCIS_PER_CONF 10
-
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_ADDR(off, ch) ((off) + ((ch) << 2))
+#define DMOV_CMD_PTR(ch)      DMOV_ADDR(0x000, ch)
+#else
 #define DMOV_ADDR(off, ch, sd) ((DMOV_SD_SIZE*(sd)) + (off) + ((ch) << 2))
 #define DMOV_SD0(off, ch) DMOV_ADDR(off, ch, 0)
 #define DMOV_SD1(off, ch) DMOV_ADDR(off, ch, 1)
 #define DMOV_SD2(off, ch) DMOV_ADDR(off, ch, 2)
 #define DMOV_SD3(off, ch) DMOV_ADDR(off, ch, 3)
 
-#if defined(CONFIG_ARCH_MSM7X30)
-#define DMOV_SD_SIZE 0x400
-#define DMOV_SD_AARM 2
-#define DMOV_CE_CHAN_IN         5
-#define DMOV_CE_CHAN_OUT        6
-#define DMOV_CE_CRCI_IN         1
-#define DMOV_CE_CRCI_OUT        2
-#define DMOV_CE_CRCI_HASH       3
-
-
-
-#elif defined(CONFIG_MSM_ADM3)
-#define DMOV_SD_SIZE 0x800
-#define DMOV_SD_MASTER 1
-#define DMOV_SD_AARM 1
-#define DMOV_SD_MASTER_ADDR(off, ch) DMOV_ADDR(off, ch, DMOV_SD_MASTER)
-#else
 #define DMOV_SD_SIZE 0x400
 #define DMOV_SD_AARM 3
-#endif
-
 #define DMOV_SD_AARM_ADDR(off, ch) DMOV_ADDR(off, ch, DMOV_SD_AARM)
-
 #define DMOV_CMD_PTR(ch)      DMOV_SD_AARM_ADDR(0x000, ch)
+#endif/*#if defined(CONFIG_ARCH_MSM7X27)*/
+
 #define DMOV_CMD_LIST         (0 << 29) /* does not work */
 #define DMOV_CMD_PTR_LIST     (1 << 29) /* works */
 #define DMOV_CMD_INPUT_CFG    (2 << 29) /* untested */
 #define DMOV_CMD_OUTPUT_CFG   (3 << 29) /* untested */
 #define DMOV_CMD_ADDR(addr)   ((addr) >> 3)
-
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_RSLT(ch)         DMOV_ADDR(0x040, ch)
+#else
 #define DMOV_RSLT(ch)         DMOV_SD_AARM_ADDR(0x040, ch)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
 #define DMOV_RSLT_VALID       (1 << 31) /* 0 == host has empties result fifo */
 #define DMOV_RSLT_ERROR       (1 << 3)
 #define DMOV_RSLT_FLUSH       (1 << 2)
 #define DMOV_RSLT_DONE        (1 << 1)  /* top pointer done */
 #define DMOV_RSLT_USER        (1 << 0)  /* command with FR force result */
-
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_FLUSH0(ch)       DMOV_ADDR(0x080, ch)
+#define DMOV_FLUSH1(ch)       DMOV_ADDR(0x0C0, ch)
+#define DMOV_FLUSH2(ch)       DMOV_ADDR(0x100, ch)
+#define DMOV_FLUSH3(ch)       DMOV_ADDR(0x140, ch)
+#define DMOV_FLUSH4(ch)       DMOV_ADDR(0x180, ch)
+#define DMOV_FLUSH5(ch)       DMOV_ADDR(0x1C0, ch)
+#define DMOV_FLUSH_TYPE       (1 << 31)
+#define DMOV_STATUS(ch)       DMOV_ADDR(0x200, ch)
+#else
 #define DMOV_FLUSH0(ch)       DMOV_SD_AARM_ADDR(0x080, ch)
 #define DMOV_FLUSH1(ch)       DMOV_SD_AARM_ADDR(0x0C0, ch)
 #define DMOV_FLUSH2(ch)       DMOV_SD_AARM_ADDR(0x100, ch)
@@ -93,43 +101,66 @@ unsigned int msm_dmov_build_crci_mask(int n, ...);
 #define DMOV_FLUSH4(ch)       DMOV_SD_AARM_ADDR(0x180, ch)
 #define DMOV_FLUSH5(ch)       DMOV_SD_AARM_ADDR(0x1C0, ch)
 #define DMOV_FLUSH_TYPE       (1 << 31)
-
 #define DMOV_STATUS(ch)       DMOV_SD_AARM_ADDR(0x200, ch)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
+
 #define DMOV_STATUS_RSLT_COUNT(n)    (((n) >> 29))
 #define DMOV_STATUS_CMD_COUNT(n)     (((n) >> 27) & 3)
 #define DMOV_STATUS_RSLT_VALID       (1 << 1)
 #define DMOV_STATUS_CMD_PTR_RDY      (1 << 0)
-
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_CONF(ch)         DMOV_ADDR(0x240, ch)
+#else
 #define DMOV_CONF(ch)         DMOV_SD_MASTER_ADDR(0x240, ch)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
 #define DMOV_CONF_SD(sd)      (((sd & 4) << 11) | ((sd & 3) << 4))
 #define DMOV_CONF_IRQ_EN             (1 << 6)
 #define DMOV_CONF_FORCE_RSLT_EN      (1 << 7)
 #define DMOV_CONF_SHADOW_EN          (1 << 12)
 #define DMOV_CONF_MPU_DISABLE        (1 << 11)
 #define DMOV_CONF_PRIORITY(n)        (n << 0)
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_DBG_ERR(ci)      DMOV_ADDR(0x280, ci)
 
+#define DMOV_RSLT_CONF(ch)    DMOV_ADDR(0x300, ch)
+#else
 #define DMOV_DBG_ERR(ci)      DMOV_SD_MASTER_ADDR(0x280, ci)
 
 #define DMOV_RSLT_CONF(ch)    DMOV_SD_AARM_ADDR(0x300, ch)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
 #define DMOV_RSLT_CONF_FORCE_TOP_PTR_RSLT (1 << 2)
 #define DMOV_RSLT_CONF_FORCE_FLUSH_RSLT   (1 << 1)
 #define DMOV_RSLT_CONF_IRQ_EN             (1 << 0)
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_ISR              DMOV_ADDR(0x380, 0)
 
+#define DMOV_CI_CONF(ci)      DMOV_ADDR(0x390, ci)
+#else
 #define DMOV_ISR              DMOV_SD_AARM_ADDR(0x380, 0)
 
 #define DMOV_CI_CONF(ci)      DMOV_SD_MASTER_ADDR(0x390, ci)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
 #define DMOV_CI_CONF_RANGE_END(n)      ((n) << 24)
 #define DMOV_CI_CONF_RANGE_START(n)    ((n) << 16)
 #define DMOV_CI_CONF_MAX_BURST(n)      ((n) << 0)
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_CI_DBG_ERR(ci)   DMOV_ADDR(0x3B0, ci)
 
+#define DMOV_CRCI_CONF0       DMOV_ADDR(0x3D0, 0)
+#define DMOV_CRCI_CONF1       DMOV_ADDR(0x3D4, 0)
+#else
 #define DMOV_CI_DBG_ERR(ci)   DMOV_SD_MASTER_ADDR(0x3B0, ci)
 
 #define DMOV_CRCI_CONF0       DMOV_SD_MASTER_ADDR(0x3D0, 0)
 #define DMOV_CRCI_CONF1       DMOV_SD_MASTER_ADDR(0x3D4, 0)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
 #define DMOV_CRCI_CONF0_SD(crci, sd) (sd << (crci*3))
 #define DMOV_CRCI_CONF1_SD(crci, sd) (sd << ((crci-DMOV_CRCIS_PER_CONF)*3))
-
+#if !defined(CONFIG_ARCH_MSM7X27)
+#define DMOV_CRCI_CTL(crci)   DMOV_ADDR(0x400, crci)
+#else
 #define DMOV_CRCI_CTL(crci)   DMOV_SD_AARM_ADDR(0x400, crci)
+#endif/*#if !defined(CONFIG_ARCH_MSM7X27)*/
 #define DMOV_CRCI_CTL_BLK_SZ(n)        ((n) << 0)
 #define DMOV_CRCI_CTL_RST              (1 << 17)
 #define DMOV_CRCI_MUX                  (1 << 18)
@@ -140,7 +171,7 @@ unsigned int msm_dmov_build_crci_mask(int n, ...);
  * Format of CRCI numbers: crci number + (muxsel << 4)
  */
 
-#ifdef CONFIG_ARCH_MSM8X60
+#if defined(CONFIG_ARCH_MSM8X60)
 #define DMOV_GP_CHAN           15
 
 #define DMOV_NAND_CHAN         17
@@ -148,14 +179,6 @@ unsigned int msm_dmov_build_crci_mask(int n, ...);
 #define DMOV_NAND_CHAN_Q6      27
 #define DMOV_NAND_CRCI_CMD     15
 #define DMOV_NAND_CRCI_DATA    3
-
-#define DMOV_CE_CHAN_IN		11
-#define DMOV_CE_CHAN_OUT	12
-
-#define DMOV_CE_CRCI_IN		4
-#define DMOV_CE_CRCI_OUT	5
-#define DMOV_CE_CRCI_HASH	15
-
 
 #define DMOV_CE_IN_CHAN        2
 #define DMOV_CE_IN_CRCI        4
@@ -194,6 +217,39 @@ unsigned int msm_dmov_build_crci_mask(int n, ...);
 
 #define DMOV_HSUART2_RX_CHAN   8
 #define DMOV_HSUART2_RX_CRCI   14
+
+#elif defined(CONFIG_ARCH_MSM8960)
+#define DMOV_GP_CHAN           9
+
+#define DMOV_CE_IN_CHAN        0
+#define DMOV_CE_IN_CRCI        2
+
+#define DMOV_CE_OUT_CHAN       1
+#define DMOV_CE_OUT_CRCI       3
+
+#define DMOV_HSUART_GSBI6_TX_CHAN	7
+#define DMOV_HSUART_GSBI6_TX_CRCI	6
+
+#define DMOV_HSUART_GSBI6_RX_CHAN	8
+#define DMOV_HSUART_GSBI6_RX_CRCI	11
+
+#elif defined(CONFIG_ARCH_MSM9615)
+
+#define DMOV_GP_CHAN          4
+
+#define DMOV_CE_IN_CHAN       0
+#define DMOV_CE_IN_CRCI       12
+
+#define DMOV_CE_OUT_CHAN      1
+#define DMOV_CE_OUT_CRCI      13
+
+#define DMOV_NAND_CHAN        3
+#define DMOV_NAND_CRCI_CMD    15
+#define DMOV_NAND_CRCI_DATA   3
+
+#elif defined(CONFIG_ARCH_FSM9XXX)
+/* defined in dma-fsm9xxx.h */
+
 #else
 #define DMOV_GP_CHAN          4
 

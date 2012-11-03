@@ -21,7 +21,6 @@
 
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/smp_lock.h>
 #include <linux/time.h>
 #include <linux/device.h>
 #include <linux/moduleparam.h>
@@ -129,8 +128,6 @@ static struct snd_minor *autoload_device(unsigned int minor)
 	if (dev == SNDRV_MINOR_CONTROL) {
 		/* /dev/aloadC? */
 		int card = SNDRV_MINOR_CARD(minor);
-		if (card < 0 || card >= SNDRV_CARDS)
-			return NULL;
 		if (snd_cards[card] == NULL)
 			snd_request_card(card);
 	} else if (dev == SNDRV_MINOR_GLOBAL) {
@@ -186,18 +183,27 @@ static int snd_open(struct inode *inode, struct file *file)
 static const struct file_operations snd_fops =
 {
 	.owner =	THIS_MODULE,
-	.open =		snd_open
+	.open =		snd_open,
+	.llseek =	noop_llseek,
 };
 
 #ifdef CONFIG_SND_DYNAMIC_MINORS
-static int snd_find_free_minor(void)
+static int snd_find_free_minor(int type)
 {
 	int minor;
 
+	/* static minors for module auto loading */
+	if (type == SNDRV_DEVICE_TYPE_SEQUENCER)
+		return SNDRV_MINOR_SEQUENCER;
+	if (type == SNDRV_DEVICE_TYPE_TIMER)
+		return SNDRV_MINOR_TIMER;
+
 	for (minor = 0; minor < ARRAY_SIZE(snd_minors); ++minor) {
-		/* skip minors still used statically for autoloading devices */
-		if (SNDRV_MINOR_DEVICE(minor) == SNDRV_MINOR_CONTROL ||
-		    minor == SNDRV_MINOR_SEQUENCER)
+		/* skip static minors still used for module auto loading */
+		if (SNDRV_MINOR_DEVICE(minor) == SNDRV_MINOR_CONTROL)
+			continue;
+		if (minor == SNDRV_MINOR_SEQUENCER ||
+		    minor == SNDRV_MINOR_TIMER)
 			continue;
 		if (!snd_minors[minor])
 			return minor;
@@ -215,11 +221,7 @@ static int snd_kernel_minor(int type, struct snd_card *card, int dev)
 		minor = type;
 		break;
 	case SNDRV_DEVICE_TYPE_CONTROL:
-#if defined(CONFIG_SND_DEBUG)
 		if (snd_BUG_ON(!card))
-#else
-		if (!card)
-#endif
 			return -EINVAL;
 		minor = SNDRV_MINOR(card->number, type);
 		break;
@@ -227,11 +229,7 @@ static int snd_kernel_minor(int type, struct snd_card *card, int dev)
 	case SNDRV_DEVICE_TYPE_RAWMIDI:
 	case SNDRV_DEVICE_TYPE_PCM_PLAYBACK:
 	case SNDRV_DEVICE_TYPE_PCM_CAPTURE:
-#if defined(CONFIG_SND_DEBUG)
 		if (snd_BUG_ON(!card))
-#else
-		if (!card)
-#endif
 			return -EINVAL;
 		minor = SNDRV_MINOR(card->number, type + dev);
 		break;
@@ -279,7 +277,7 @@ int snd_register_device_for_dev(int type, struct snd_card *card, int dev,
 	preg->private_data = private_data;
 	mutex_lock(&sound_mutex);
 #ifdef CONFIG_SND_DYNAMIC_MINORS
-	minor = snd_find_free_minor();
+	minor = snd_find_free_minor(type);
 #else
 	minor = snd_kernel_minor(type, card, dev);
 	if (minor >= 0 && snd_minors[minor])
@@ -342,7 +340,7 @@ int snd_unregister_device(int type, struct snd_card *card, int dev)
 
 	mutex_lock(&sound_mutex);
 	minor = find_snd_minor(type, card, dev);
-	if (minor < 0 || minor >= SNDRV_OS_MINORS) {
+	if (minor < 0) {
 		mutex_unlock(&sound_mutex);
 		return -EINVAL;
 	}
@@ -365,8 +363,7 @@ int snd_add_device_sysfs_file(int type, struct snd_card *card, int dev,
 
 	mutex_lock(&sound_mutex);
 	minor = find_snd_minor(type, card, dev);
-	if (minor >= 0 && minor < SNDRV_OS_MINORS &&
-	    (d = snd_minors[minor]->dev) != NULL)
+	if (minor >= 0 && (d = snd_minors[minor]->dev) != NULL)
 		ret = device_create_file(d, attr);
 	mutex_unlock(&sound_mutex);
 	return ret;

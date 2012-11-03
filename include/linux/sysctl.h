@@ -153,6 +153,7 @@ enum
 	KERN_MAX_LOCK_DEPTH=74, /* int: rtmutex's maximum lock depth */
 	KERN_NMI_WATCHDOG=75, /* int: enable/disable nmi watchdog */
 	KERN_PANIC_ON_NMI=76, /* int: whether we will panic on an unrecovered */
+	KERN_BOOT_REASON = 77, /* int: identify reason system was booted */
 };
 
 
@@ -930,6 +931,7 @@ enum
 
 #ifdef __KERNEL__
 #include <linux/list.h>
+#include <linux/rcupdate.h>
 
 /* For the /proc/sys support */
 struct ctl_table;
@@ -1037,10 +1039,15 @@ struct ctl_table_root {
    struct ctl_table trees. */
 struct ctl_table_header
 {
-	struct ctl_table *ctl_table;
-	struct list_head ctl_entry;
-	int used;
-	int count;
+	union {
+		struct {
+			struct ctl_table *ctl_table;
+			struct list_head ctl_entry;
+			int used;
+			int count;
+		};
+		struct rcu_head rcu;
+	};
 	struct completion *unregistering;
 	struct ctl_table *ctl_table_arg;
 	struct ctl_table_root *root;

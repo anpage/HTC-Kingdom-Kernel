@@ -188,7 +188,7 @@ static ssize_t bthid_write(struct file *file, const char __user *buffer,
 	return 0;
 }
 
-static int bthid_ioctl(struct inode *inode, struct file *file,
+static long bthid_ioctl(struct file *file,
 		unsigned int cmd, unsigned long arg)
 {
 	int ret;
@@ -269,7 +269,7 @@ static const struct file_operations bthid_fops = {
 	.open    = bthid_open,
 	.release = bthid_release,
 	.write   = bthid_write,
-	.ioctl   = bthid_ioctl,
+	.unlocked_ioctl   = bthid_ioctl,
 };
 
 static struct miscdevice bthid_misc = {

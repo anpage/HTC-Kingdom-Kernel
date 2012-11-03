@@ -56,7 +56,6 @@
 
 /*-------------------------------------------------------------------------*/
 
-
 #define SDQXDM_DEBUG
 #define DIAG_XPST 1
 
@@ -80,7 +79,7 @@ struct diag_request {
 };
 
 struct usb_diag_ch {
-	char *name;
+	const char *name;
 	struct list_head list;
 	void (*notify)(void *priv, unsigned event, struct diag_request *d_req);
 	void *priv;
@@ -94,18 +93,22 @@ int usb_diag_alloc_req(struct usb_diag_ch *ch, int n_write, int n_read);
 void usb_diag_free_req(struct usb_diag_ch *ch);
 int usb_diag_read(struct usb_diag_ch *ch, struct diag_request *d_req);
 int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req);
-struct usb_diag_ch *diag_setup(void);
 
 int diag_read_from_cb(unsigned char * , int);
 
-/* platform data for usb diag */
-struct usb_diag_platform_data {
-	char *ch_name;
-	int (*update_pid_and_serial_num)(uint32_t, const char *);
-};
-
-struct diag2sd_platform_data {
-	void (*enable_sd_log)(unsigned int enable);
-};
-
+#if defined(CONFIG_MACH_MECHA) /* || defined(CONFIG_ARCH_MSM8X60_LTE) */
+extern  int sdio_diag_init_enable;
 #endif
+#if defined(CONFIG_ARCH_MSM8X60_LTE)
+extern int diag_configured;
+#endif
+int checkcmd_modem_epst(unsigned char *buf);
+int modem_to_userspace(void *buf, int r, int cmdtype, int is9k);
+
+void msm_sdio_diag_write(void *data, int len);
+void sdio_diag_read_data(struct work_struct *work);
+void diag_sdio_mdm_send_req(int context);
+extern int sdio_diag_initialized;
+extern int smd_diag_initialized;
+
+#endif /* _DRIVERS_USB_DIAG_H_ */

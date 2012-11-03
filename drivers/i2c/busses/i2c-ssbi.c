@@ -1,58 +1,13 @@
-/* Copyright (c) 2009, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
- *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 /*
  * SSBI driver for Qualcomm MSM platforms
@@ -65,22 +20,16 @@
 #include <linux/io.h>
 #include <linux/i2c.h>
 #include <linux/remote_spinlock.h>
-#include <linux/slab.h>
 #include <mach/board.h>
+#include <linux/slab.h>
 
 /* SSBI 2.0 controller registers */
-#define SSBI2_CTL			0x0000
-#define SSBI2_RESET			0x0004
 #define SSBI2_CMD			0x0008
 #define SSBI2_RD			0x0010
 #define SSBI2_STATUS			0x0014
-#define SSBI2_PRIORITIES		0x0018
 #define SSBI2_MODE2			0x001C
 
 /* SSBI_CMD fields */
-#define SSBI_CMD_SEND_TERM_SYM		(0x01 << 27)
-#define SSBI_CMD_WAKEUP_SLAVE		(0x01 << 26)
-#define SSBI_CMD_USE_ENABLE		(0x01 << 25)
 #define SSBI_CMD_RDWRN			(0x01 << 24)
 #define SSBI_CMD_REG_ADDR_SHFT		(0x10)
 #define SSBI_CMD_REG_ADDR_MASK		(0xFF << SSBI_CMD_REG_ADDR_SHFT)
@@ -95,7 +44,6 @@
 #define SSBI_STATUS_MCHN_BUSY		0x01
 
 /* SSBI_RD fields */
-#define SSBI_RD_USE_ENABLE		0x02000000
 #define SSBI_RD_RDWRN			0x01000000
 #define SSBI_RD_REG_ADDR_SHFT		0x10
 #define SSBI_RD_REG_ADDR_MASK		(0xFF << SSBI_RD_REG_ADDR_SHFT)
@@ -153,6 +101,16 @@
 #define SSBI_PA_RD_STATUS_TRANS_COMPLETE \
 	(SSBI_PA_RD_STATUS_TRANS_DONE|SSBI_PA_RD_STATUS_TRANS_DENIED)
 
+/* SSBI_FSM Read and Write commands for the FSM9xxx SSBI implementation */
+#define SSBI_FSM_CMD_REG_ADDR_SHFT	(0x08)
+
+#define SSBI_FSM_CMD_READ(AD) \
+	(SSBI_CMD_RDWRN | (((AD) & 0xFFFF) << SSBI_FSM_CMD_REG_ADDR_SHFT))
+
+#define SSBI_FSM_CMD_WRITE(AD, DT) \
+	((((AD) & 0xFFFF) << SSBI_FSM_CMD_REG_ADDR_SHFT) | \
+	 (((DT) & 0xFF) << SSBI_CMD_REG_DATA_SHFT))
+
 #define SSBI_MSM_NAME			"i2c_ssbi"
 
 MODULE_LICENSE("GPL v2");
@@ -172,15 +130,25 @@ struct i2c_ssbi_dev {
 	int (*write)(struct i2c_ssbi_dev *, struct i2c_msg *);
 };
 
+static inline u32 ssbi_readl(struct i2c_ssbi_dev *ssbi, u32 reg)
+{
+	return readl_relaxed(ssbi->base + reg);
+}
+
+static inline void ssbi_writel(struct i2c_ssbi_dev *ssbi, u32 reg, u32 val)
+{
+	writel_relaxed(val, ssbi->base + reg);
+}
+
 static inline int
 i2c_ssbi_poll_for_device_ready(struct i2c_ssbi_dev *ssbi)
 {
 	u32 timeout = SSBI_TIMEOUT_US;
 
-	while (!(readl(ssbi->base + SSBI2_STATUS) & SSBI_STATUS_READY)) {
+	while (!(ssbi_readl(ssbi, SSBI2_STATUS) & SSBI_STATUS_READY)) {
 		if (--timeout == 0) {
 			dev_err(ssbi->dev, "%s: timeout, status %x\n", __func__,
-				readl(ssbi->base + SSBI2_STATUS));
+				ssbi_readl(ssbi, SSBI2_STATUS));
 			return -ETIMEDOUT;
 		}
 		udelay(1);
@@ -194,10 +162,10 @@ i2c_ssbi_poll_for_read_completed(struct i2c_ssbi_dev *ssbi)
 {
 	u32 timeout = SSBI_TIMEOUT_US;
 
-	while (!(readl(ssbi->base + SSBI2_STATUS) & SSBI_STATUS_RD_READY)) {
+	while (!(ssbi_readl(ssbi, SSBI2_STATUS) & SSBI_STATUS_RD_READY)) {
 		if (--timeout == 0) {
 			dev_err(ssbi->dev, "%s: timeout, status %x\n", __func__,
-				readl(ssbi->base + SSBI2_STATUS));
+				ssbi_readl(ssbi, SSBI2_STATUS));
 			return -ETIMEDOUT;
 		}
 		udelay(1);
@@ -211,10 +179,10 @@ i2c_ssbi_poll_for_transfer_completed(struct i2c_ssbi_dev *ssbi)
 {
 	u32 timeout = SSBI_TIMEOUT_US;
 
-	while ((readl(ssbi->base + SSBI2_STATUS) & SSBI_STATUS_MCHN_BUSY)) {
+	while ((ssbi_readl(ssbi, SSBI2_STATUS) & SSBI_STATUS_MCHN_BUSY)) {
 		if (--timeout == 0) {
 			dev_err(ssbi->dev, "%s: timeout, status %x\n", __func__,
-				readl(ssbi->base + SSBI2_STATUS));
+				ssbi_readl(ssbi, SSBI2_STATUS));
 			return -ETIMEDOUT;
 		}
 		udelay(1);
@@ -230,34 +198,31 @@ i2c_ssbi_read_bytes(struct i2c_ssbi_dev *ssbi, struct i2c_msg *msg)
 	u8 *buf = msg->buf;
 	u16 len = msg->len;
 	u16 addr = msg->addr;
-	u32 read_cmd = SSBI_CMD_READ(addr);
+	u32 read_cmd;
 
-#if defined (CONFIG_ARCH_MSM8X60)
 	if (ssbi->controller_type == MSM_SBI_CTRL_SSBI2) {
-		u32 mode2 = readl(ssbi->base + SSBI2_MODE2);
-		writel(SSBI_MODE2_REG_ADDR_15_8(mode2, addr),
-				ssbi->base + SSBI2_MODE2);
+		u32 mode2 = ssbi_readl(ssbi, SSBI2_MODE2);
+		ssbi_writel(ssbi, SSBI2_MODE2,
+				SSBI_MODE2_REG_ADDR_15_8(mode2, addr));
 	}
-#else
-	u32 mode2 = readl(ssbi->base + SSBI2_MODE2);
 
-	if (mode2 & SSBI_MODE2_SSBI2_MODE)
-		writel(SSBI_MODE2_REG_ADDR_15_8(mode2, addr),
-				ssbi->base + SSBI2_MODE2);
-#endif
+	if (ssbi->controller_type == FSM_SBI_CTRL_SSBI)
+		read_cmd = SSBI_FSM_CMD_READ(addr);
+	else
+		read_cmd = SSBI_CMD_READ(addr);
 
 	while (len) {
 		ret = i2c_ssbi_poll_for_device_ready(ssbi);
 		if (ret)
 			goto read_failed;
 
-		writel(read_cmd, ssbi->base + SSBI2_CMD);
+		ssbi_writel(ssbi, SSBI2_CMD, read_cmd);
 
 		ret = i2c_ssbi_poll_for_read_completed(ssbi);
 		if (ret)
 			goto read_failed;
 
-		*buf++ = readl(ssbi->base + SSBI2_RD) & SSBI_RD_REG_DATA_MASK;
+		*buf++ = ssbi_readl(ssbi, SSBI2_RD) & SSBI_RD_REG_DATA_MASK;
 		len--;
 	}
 
@@ -273,26 +238,23 @@ i2c_ssbi_write_bytes(struct i2c_ssbi_dev *ssbi, struct i2c_msg *msg)
 	u16 len = msg->len;
 	u16 addr = msg->addr;
 
-#if defined (CONFIG_ARCH_MSM8X60)
 	if (ssbi->controller_type == MSM_SBI_CTRL_SSBI2) {
-		u32 mode2 = readl(ssbi->base + SSBI2_MODE2);
-		writel(SSBI_MODE2_REG_ADDR_15_8(mode2, addr),
-				ssbi->base + SSBI2_MODE2);
+		u32 mode2 = ssbi_readl(ssbi, SSBI2_MODE2);
+		ssbi_writel(ssbi, SSBI2_MODE2,
+				SSBI_MODE2_REG_ADDR_15_8(mode2, addr));
 	}
-#else
-	u32 mode2 = readl(ssbi->base + SSBI2_MODE2);
-
-	if (mode2 & SSBI_MODE2_SSBI2_MODE)
-		writel(SSBI_MODE2_REG_ADDR_15_8(mode2, addr),
-				ssbi->base + SSBI2_MODE2);
-#endif
 
 	while (len) {
 		ret = i2c_ssbi_poll_for_device_ready(ssbi);
 		if (ret)
 			goto write_failed;
 
-		writel(SSBI_CMD_WRITE(addr, *buf++), ssbi->base + SSBI2_CMD);
+		if (ssbi->controller_type == FSM_SBI_CTRL_SSBI)
+			ssbi_writel(ssbi, SSBI2_CMD,
+				SSBI_FSM_CMD_WRITE(addr, *buf++));
+		else
+			ssbi_writel(ssbi, SSBI2_CMD,
+				SSBI_CMD_WRITE(addr, *buf++));
 
 		ret = i2c_ssbi_poll_for_transfer_completed(ssbi);
 		if (ret)
@@ -311,8 +273,8 @@ i2c_ssbi_pa_transfer(struct i2c_ssbi_dev *ssbi, u32 cmd, u8 *data)
 	u32 rd_status;
 	u32 timeout = SSBI_TIMEOUT_US;
 
-	writel(cmd, ssbi->base + SSBI_PA_CMD);
-	rd_status = readl(ssbi->base + SSBI_PA_RD_STATUS);
+	ssbi_writel(ssbi, SSBI_PA_CMD, cmd);
+	rd_status = ssbi_readl(ssbi, SSBI_PA_RD_STATUS);
 
 	while ((rd_status & (SSBI_PA_RD_STATUS_TRANS_COMPLETE)) == 0) {
 
@@ -322,7 +284,7 @@ i2c_ssbi_pa_transfer(struct i2c_ssbi_dev *ssbi, u32 cmd, u8 *data)
 			return -ETIMEDOUT;
 		}
 		udelay(1);
-		rd_status = readl(ssbi->base + SSBI_PA_RD_STATUS);
+		rd_status = ssbi_readl(ssbi, SSBI_PA_RD_STATUS);
 	}
 
 	if (rd_status & SSBI_PA_RD_STATUS_TRANS_DENIED) {
@@ -337,7 +299,6 @@ i2c_ssbi_pa_transfer(struct i2c_ssbi_dev *ssbi, u32 cmd, u8 *data)
 	return 0;
 }
 
-#if defined (CONFIG_ARCH_MSM8X60)
 static int
 i2c_ssbi_pa_read_bytes(struct i2c_ssbi_dev *ssbi, struct i2c_msg *msg)
 {
@@ -382,7 +343,6 @@ i2c_ssbi_pa_write_bytes(struct i2c_ssbi_dev *ssbi, struct i2c_msg *msg)
 write_failed:
 	return ret;
 }
-#endif
 
 static int
 i2c_ssbi_transfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
@@ -436,7 +396,7 @@ static int __init i2c_ssbi_probe(struct platform_device *pdev)
 	int			 ret = 0;
 	struct resource		*ssbi_res;
 	struct i2c_ssbi_dev	*ssbi;
-	struct msm_ssbi_platform_data *pdata;
+	const struct msm_i2c_ssbi_platform_data *pdata;
 
 	pdata = pdev->dev.platform_data;
 	if (!pdata) {
@@ -478,7 +438,6 @@ static int __init i2c_ssbi_probe(struct platform_device *pdev)
 	ssbi->dev = &pdev->dev;
 	platform_set_drvdata(pdev, ssbi);
 
-#if defined (CONFIG_ARCH_MSM8X60)
 	ssbi->controller_type = pdata->controller_type;
 	if (ssbi->controller_type == MSM_SBI_CTRL_PMIC_ARBITER) {
 		ssbi->read = i2c_ssbi_pa_read_bytes;
@@ -487,10 +446,6 @@ static int __init i2c_ssbi_probe(struct platform_device *pdev)
 		ssbi->read = i2c_ssbi_read_bytes;
 		ssbi->write = i2c_ssbi_write_bytes;
 	}
-#else
-	ssbi->read = i2c_ssbi_read_bytes;
-	ssbi->write = i2c_ssbi_write_bytes;
-#endif
 
 	i2c_set_adapdata(&ssbi->adapter, ssbi);
 	ssbi->adapter.algo = &msm_i2c_algo;

@@ -15,10 +15,10 @@
 #include <linux/i2c.h>
 #include <linux/slab.h>
 #include <linux/miscdevice.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/input.h>
 #include <linux/bma250.h>
-#include <asm/gpio.h>
+#include <linux/gpio.h>
 #include <linux/delay.h>
 #include<linux/earlysuspend.h>
 
@@ -26,10 +26,14 @@
 
 #define D(x...) pr_info("[GSNR][BMA250] " x)
 #define E(x...) printk(KERN_ERR "[GSNR][BMA250 ERROR] " x)
-#define DIF(x...) if (debug_flag) printk(KERN_DEBUG "[GSNR][BMA250 DEBUG] " x)
+#define DIF(x...) {\
+		if (debug_flag)\
+			printk(KERN_DEBUG "[GSNR][BMA250 DEBUG] " x); }
 
 #define DEFAULT_RANGE	BMA_RANGE_2G
 #define DEFAULT_BW	BMA_BW_31_25HZ
+
+#define RETRY_TIMES	10
 
 static struct i2c_client *this_client;
 
@@ -65,15 +69,15 @@ static int BMA_I2C_RxData(char *rxData, int length)
 		 },
 	};
 
-	for (retry = 0; retry <= 100; retry++) {
+	for (retry = 0; retry <= RETRY_TIMES; retry++) {
 		if (i2c_transfer(this_client->adapter, msgs, 2) > 0)
 			break;
 		else
 			mdelay(10);
 	}
 
-	if (retry > 100) {
-		E("%s: retry over 100\n", __func__);
+	if (retry > RETRY_TIMES) {
+		E("%s: retry over %d\n", __func__, RETRY_TIMES);
 		return -EIO;
 	} else
 		return 0;
@@ -91,15 +95,15 @@ static int BMA_I2C_TxData(char *txData, int length)
 		 },
 	};
 
-	for (retry = 0; retry <= 100; retry++) {
+	for (retry = 0; retry <= RETRY_TIMES; retry++) {
 		if (i2c_transfer(this_client->adapter, msg, 1) > 0)
 			break;
 		else
 			mdelay(10);
 	}
 
-	if (retry > 100) {
-		E("%s: retry over 100\n", __func__);
+	if (retry > RETRY_TIMES) {
+		E("%s: retry over %d\n", __func__, RETRY_TIMES);
 		return -EIO;
 	} else
 		return 0;
@@ -236,7 +240,7 @@ static int bma_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int bma_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
+static long bma_ioctl(struct file *file, unsigned int cmd,
 	   unsigned long arg)
 {
 
@@ -532,11 +536,17 @@ err_create_class:
 	return ret;
 }
 
-static struct file_operations bma_fops = {
+static const struct file_operations bma_fops = {
 	.owner = THIS_MODULE,
 	.open = bma_open,
 	.release = bma_release,
-	.ioctl = bma_ioctl,
+	/*.ioctl = bma_ioctl,*/
+#if HAVE_COMPAT_IOCTL
+	.compat_ioctl = bma_ioctl,
+#endif
+#if HAVE_UNLOCKED_IOCTL
+	.unlocked_ioctl = bma_ioctl,
+#endif
 };
 
 static struct miscdevice bma_device = {
@@ -609,7 +619,7 @@ int bma250_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		E("%s: set spi_bma150_registerAttr fail!\n", __func__);
 		goto err_registerAttr;
 	}
-	D("%s:OK\n", __func__);
+	D("%s: I2C retry 10 times version. OK\n", __func__);
 	debug_flag = 0;
 
 	return 0;

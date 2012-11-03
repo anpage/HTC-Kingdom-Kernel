@@ -22,6 +22,8 @@
 
 #define DRIVER_HS_PMIC_RPC_KEY			(1 << 0)
 #define DRIVER_HS_PMIC_DYNAMIC_THRESHOLD	(1 << 1)
+#define DRIVER_HS_PMIC_ADC			(1 << 2)
+#define DRIVER_HS_PMIC_EDGE_IRQ			(1 << 3)
 
 #define HS_PMIC_HTC_CURRENT_THRESHOLD		500
 
@@ -75,6 +77,8 @@ struct htc_headset_pmic_platform_data {
 	unsigned int key_gpio;
 	unsigned int key_irq;
 	unsigned int key_enable_gpio;
+	unsigned int adc_mpp;
+	unsigned int adc_amux;
 	unsigned int hs_controller;
 	unsigned int hs_switch;
 
@@ -91,6 +95,9 @@ struct htc_35mm_pmic_info {
 	unsigned int hpin_debounce;
 	unsigned int key_irq_type;
 	struct wake_lock hs_wake_lock;
+	/*20120119: Add by Jacky for debug use */
+	struct class* htc_accessory_class;
+	struct device* pmic_dev;
 };
 
 #endif

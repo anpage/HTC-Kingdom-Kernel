@@ -1,38 +1,29 @@
 /* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 #ifndef __PMIC8058_PWM_H__
 #define __PMIC8058_PWM_H__
 
+#include <linux/leds-pm8058.h>
+
 /* The MAX value is computation limit. Hardware limit is 393 seconds. */
 #define	PM_PWM_PERIOD_MAX		(274 * USEC_PER_SEC)
 /* The MIN value is hardware limit. */
 #define	PM_PWM_PERIOD_MIN		7 /* micro seconds */
+
+struct pm8058_pwm_pdata {
+	int 	(*config)(struct pwm_device *pwm, int ch, int on);
+	int 	(*enable)(struct pwm_device *pwm, int ch, int on);
+};
 
 #define	PM_PWM_LUT_SIZE			64
 #define	PM_PWM_LUT_DUTY_TIME_MAX	512	/* ms */
@@ -46,7 +37,6 @@
 #define	PM_PWM_LUT_PAUSE_LO_EN	0x20
 
 #define	PM_PWM_LUT_NO_TABLE	0x100
-#define	PM8058_LPG_CTL_REGS		7
 
 /* PWM LED ID */
 #define	PM_PWM_LED_0		0
@@ -66,40 +56,68 @@
 #define	PM_PWM_CONF_DTEST3	0x6
 #define	PM_PWM_CONF_DTEST4	0x7
 
-struct pwm_device {
-	int			pwm_id;		/* = bank/channel id */
-	int			in_use;
-	const char		*label;
-	int			pwm_period;
-	int			pwm_duty;
-	u8			pwm_ctl[PM8058_LPG_CTL_REGS];
-	int			irq;
-	struct pm8058_pwm_chip	*chip;
+/**
+ * PWM frequency/period control
+ *
+ * PWM Frequency = ClockFrequency / (N * T)
+ *   or
+ * PWM Period = Clock Period * (N * T)
+ *   where
+ * N = 2^9 or 2^6 for 9-bit or 6-bit PWM size
+ * T = Pre-divide * 2^m, m = 0..7 (exponent)
+ *
+ */
+
+enum pm_pwm_size {
+	PM_PWM_SIZE_6BIT =	6,
+	PM_PWM_SIZE_9BIT =	9,
 };
 
-struct pm8058_pwm_pdata {
-	int 	(*config)(struct pwm_device *pwm, int ch, int on);
-	int 	(*enable)(struct pwm_device *pwm, int ch, int on);
+enum pm_pwm_clk {
+	CLK_1KHZ = PM_PWM_CLK_1KHZ,
+	CLK_32KHZ = PM_PWM_CLK_32KHZ,
+	CLK_19P2MHZ = PM_PWM_CLK_19P2MHZ,
 };
 
-struct pw8058_pwm_config {
-	int	pwm_size;	/* round up to 6 or 9 for 6/9-bit PWM SIZE */
-	int	clk;
-	int	pre_div;
-	int	pre_div_exp;
-	int	pwm_value;
-	int	bypass_lut;
-
-	/* LUT parameters when bypass_lut is 0 */
-	int	lut_duty_ms;
-	int	lut_lo_index;
-	int	lut_hi_index;
-	int	lut_pause_hi;
-	int	lut_pause_lo;
-	int	flags;
+enum pm_pwm_pre_div {
+	PM_PWM_PDIV_2,
+	PM_PWM_PDIV_3,
+	PM_PWM_PDIV_5,
+	PM_PWM_PDIV_6,
 };
 
-/*
+/**
+ * struct pm8058_pwm_period - PWM period structure
+ * @pwm_size: enum pm_pwm_size
+ * @clk: enum pm_pwm_clk
+ * @pre_div: enum pm_pwm_pre_div
+ * @pre_div_exp: exponent of 2 as part of pre-divider: 0..7
+ */
+struct pm8058_pwm_period {
+	enum pm_pwm_size	pwm_size;
+	enum pm_pwm_clk		clk;
+	enum pm_pwm_pre_div	pre_div;
+	int			pre_div_exp;
+};
+
+/**
+ * pm8058_pwm_config_period - change PWM period
+ *
+ * @pwm: the PWM device
+ * @pwm_p: period in struct pm8058_pwm_period
+ */
+int pm8058_pwm_config_period(struct pwm_device *pwm,
+			     struct pm8058_pwm_period *pwm_p);
+
+/**
+ * pm8058_pwm_config_duty_cycle - change PWM duty cycle
+ *
+ * @pwm: the PWM device
+ * @pwm_value: the duty cycle in raw PWM value (< 2^pwm_size)
+ */
+int pm8058_pwm_config_duty_cycle(struct pwm_device *pwm, int pwm_value);
+
+/**
  * pm8058_pwm_lut_config - change a PWM device configuration to use LUT
  *
  * @pwm: the PWM device
@@ -111,13 +129,12 @@ struct pw8058_pwm_config {
  * @pause_lo: pause time in millisecond at low index
  * @pause_hi: pause time in millisecond at high index
  * @flags: control flags
- *
  */
 int pm8058_pwm_lut_config(struct pwm_device *pwm, int period_us,
 			  int duty_pct[], int duty_time_ms, int start_idx,
 			  int len, int pause_lo, int pause_hi, int flags);
 
-/*
+/**
  * pm8058_pwm_lut_enable - control a PWM device to start/stop LUT ramp
  *
  * @pwm: the PWM device
@@ -127,41 +144,11 @@ int pm8058_pwm_lut_enable(struct pwm_device *pwm, int start);
 /*
  * pwm_configure - change a PWM device configuration
  */
-int pwm_configure(struct pwm_device *pwm, struct pw8058_pwm_config *pwm_conf);
+int pwm_configure(struct pwm_device *pwm, struct pm8058_pwm_period *pwm_conf, int bypass_lut, int pwm_value);
 
 int pm8058_pwm_set_dtest(struct pwm_device *pwm, int enable);
 
 int pm8058_pwm_config_led(struct pwm_device *pwm, int id,
 			  int mode, int max_current);
-
-#if !defined(CONFIG_PMIC8058_PWM)
-inline struct pwm_device *pwm_request(int pwm_id, const char *label)
-{
-	return NULL;
-}
-
-inline void pwm_free(struct pwm_device *pwm)
-{
-}
-
-inline int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
-{
-	return 0;
-}
-
-inline int pwm_enable(struct pwm_device *pwm)
-{
-	return 0;
-}
-
-inline void pwm_disable(struct pwm_device *pwm)
-{
-}
-
-inline int pwm_set_dtest(struct pwm_device *pwm, int enable)
-{
-	return 0;
-}
-#endif
 
 #endif /* __PMIC8058_PWM_H__ */

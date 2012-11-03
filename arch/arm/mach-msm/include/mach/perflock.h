@@ -26,10 +26,22 @@
  */
 
 enum {
+	TYPE_PERF_LOCK = 0,	/* default performance lock*/
+	TYPE_CPUFREQ_CEILING,	/* cpufreq ceiling lock */
+};
+
+enum {
 	PERF_LOCK_MEDIUM,	/* Medium performance */
 	PERF_LOCK_HIGH,	/* High performance */
 	PERF_LOCK_HIGHEST,	/* Highest performance */
 	PERF_LOCK_INVALID,
+};
+
+enum {
+	CEILING_LEVEL_MEDIUM,	/* Medium ceiling level */
+	CEILING_LEVEL_HIGH,	/* High ceiling level */
+	CEILING_LEVEL_HIGHEST,	/* Highest ceiling level */
+	CEILING_LEVEL_INVALID,
 };
 
 struct perf_lock {
@@ -37,6 +49,7 @@ struct perf_lock {
 	unsigned int flags;
 	unsigned int level;
 	const char *name;
+	unsigned int type;
 };
 
 struct perflock_platform_data {
@@ -47,20 +60,33 @@ struct perflock_platform_data {
 #ifndef CONFIG_PERFLOCK
 static inline void __init perflock_init(
 	struct perflock_platform_data *pdata) { return; }
+static inline void __init cpufreq_ceiling_init(
+	struct perflock_platform_data *pdata) { return; }
 static inline void perf_lock_init(struct perf_lock *lock,
+	unsigned int level, const char *name) { return; }
+static inline void perf_lock_init_v2(struct perf_lock *lock,
 	unsigned int level, const char *name) { return; }
 static inline void perf_lock(struct perf_lock *lock) { return; }
 static inline void perf_unlock(struct perf_lock *lock) { return; }
 static inline int is_perf_lock_active(struct perf_lock *lock) { return 0; }
 static inline int is_perf_locked(void) { return 0; }
+static inline void perflock_scaling_max_freq(unsigned int freq, unsigned int cpu) { return; }
+static inline void perflock_scaling_min_freq(unsigned int freq, unsigned int cpu) { return; }
+static inline void htc_print_active_perf_locks(void) { return; }
 #else
 extern void __init perflock_init(struct perflock_platform_data *pdata);
+extern void __init cpufreq_ceiling_init(struct perflock_platform_data *pdata);
 extern void perf_lock_init(struct perf_lock *lock,
+	unsigned int level, const char *name);
+extern void perf_lock_init_v2(struct perf_lock *lock,
 	unsigned int level, const char *name);
 extern void perf_lock(struct perf_lock *lock);
 extern void perf_unlock(struct perf_lock *lock);
 extern int is_perf_lock_active(struct perf_lock *lock);
 extern int is_perf_locked(void);
+extern void perflock_scaling_max_freq(unsigned int freq, unsigned int cpu);
+extern void perflock_scaling_min_freq(unsigned int freq, unsigned int cpu);
+extern void htc_print_active_perf_locks(void);
 #endif
 
 

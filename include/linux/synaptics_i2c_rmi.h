@@ -21,6 +21,33 @@
 #define SYNAPTICS_T1007_NAME "synaptics-t1007"
 #define SYNAPTICS_T1021_NAME "synaptics-t1021"
 #define SYNAPTICS_3K_NAME "synaptics-3k"
+#define SYNAPTICS_3K_INCELL_NAME "synaptics-3k-incell"
+#define SYNAPTICS_3200_NAME "synaptics-3200"
+
+
+#define SYN_CONFIG_SIZE 32 * 16
+#define SYN_MAX_PAGE 3
+#define SYN_BL_PAGE 1
+#define SYN_F01DATA_BASEADDR 0x0013
+#define SYN_PROCESS_ERR -1
+
+#define SYN_AND_REPORT_TYPE_A		0
+#define	SYN_AND_REPORT_TYPE_B		1
+#define SYN_AND_REPORT_TYPE_HTC		2
+
+#define TAP_DX_OUTER		0
+#define TAP_DY_OUTER		1
+#define TAP_TIMEOUT		2
+#define TAP_DX_INTER		3
+#define TAP_DY_INTER		4
+
+#define CUS_REG_SIZE		4
+#define CUS_REG_BASE		0
+#define CUS_BALLISTICS_CTRL	1
+#define CUS_LAND_CTRL		2
+#define CUS_LIFT_CTRL		3
+
+#define SENSOR_ID_CHECKING_EN	1 << 16
 
 enum {
 	SYNAPTICS_FLIP_X = 1UL << 0,
@@ -79,8 +106,23 @@ struct synaptics_i2c_rmi_platform_data {
 	uint32_t dup_threshold;
 	uint32_t margin_inactive_pixel[4];
 	uint16_t filter_level[4];
+	uint8_t reduce_report_level[5];
 	uint8_t noise_information;
+	uint8_t jumpfq_enable;
 	uint8_t cable_support;
+	uint8_t config[SYN_CONFIG_SIZE];
+	int gpio_irq;
+	int gpio_reset;
+	uint8_t default_config;
+	uint8_t report_type;
+	uint8_t large_obj_check;
+	uint16_t tw_pin_mask;
+	uint32_t sensor_id;
+	uint32_t packrat_number;
+	uint8_t support_htc_event;
+	uint8_t mfg_flag;
+	uint8_t customer_register[CUS_REG_SIZE];
+	uint8_t segmentation_bef_unlock;
 };
 
 struct page_description {
@@ -98,10 +140,10 @@ struct syn_finger_data {
 struct function_t {
 	uint8_t function_type;
 	uint8_t interrupt_source;
-	uint8_t data_base;
-	uint8_t control_base;
-	uint8_t command_base;
-	uint8_t query_base;
+	uint16_t data_base;
+	uint16_t control_base;
+	uint16_t command_base;
+	uint16_t query_base;
 };
 enum {
 	QUERY_BASE,

@@ -13,7 +13,6 @@
  * GNU General Public License for more details.
  *
  */
-
 #ifndef __ASM_ARCH_MSM_GPIO_H
 #define __ASM_ARCH_MSM_GPIO_H
 
@@ -27,13 +26,10 @@
 
 #define FIRST_BOARD_GPIO	NR_GPIO_IRQS
 
-/* see /arch/arm/mach-msm/generic_gpio.c for implementation */
+extern struct irq_chip msm_gpio_irq_extn;
+
 extern void register_gpio_int_mask(unsigned int gpio, unsigned int idle);
 extern void unregister_gpio_int_mask(unsigned int gpio, unsigned int idle);
-#ifndef CONFIG_ARCH_MSM8X60
-extern void config_gpio_table(uint32_t *table, int len);
-#endif
-extern int gpio_configure(unsigned int gpio, unsigned long flags);
 
 static inline int gpio_get_value(unsigned gpio)
 {
@@ -191,13 +187,20 @@ enum msm_tlmm_hdrive_tgt {
 	TLMM_HDRV_SDC3_CLK,
 	TLMM_HDRV_SDC3_CMD,
 	TLMM_HDRV_SDC3_DATA,
+	TLMM_HDRV_SDC1_CLK,
+	TLMM_HDRV_SDC1_CMD,
+	TLMM_HDRV_SDC1_DATA,
 };
 
 enum msm_tlmm_pull_tgt {
 	TLMM_PULL_SDC4_CMD = 0,
 	TLMM_PULL_SDC4_DATA,
+	TLMM_PULL_SDC3_CLK,
 	TLMM_PULL_SDC3_CMD,
 	TLMM_PULL_SDC3_DATA,
+	TLMM_PULL_SDC1_CLK,
+	TLMM_PULL_SDC1_CMD,
+	TLMM_PULL_SDC1_DATA,
 };
 
 #ifdef CONFIG_MSM_V2_TLMM
@@ -218,7 +221,7 @@ void msm_tlmm_set_pull(enum msm_tlmm_pull_tgt tgt, int pull);
  * The irq passed to this function is the DC IRQ number, not the
  * irq number seen by the scorpion when the interrupt triggers.  For example,
  * if 0 is specified, then when DC IRQ 0 triggers, the scorpion will see
- * interrupt TLMM_SCSS_DIR_CONN_IRQ_0.
+ * interrupt TLMM_MSM_DIR_CONN_IRQ_0.
  *
  * input_polarity parameter specifies when the gpio should raise the direct
  * interrupt. A value of 0 means that it is active low, anything else means
@@ -231,11 +234,12 @@ int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq,
 static inline void msm_tlmm_set_hdrive(enum msm_tlmm_hdrive_tgt tgt,
 				       int drv_str) {}
 static inline void msm_tlmm_set_pull(enum msm_tlmm_pull_tgt tgt, int pull) {}
-static inline int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq)
+static inline int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq,
+						unsigned int input_polarity)
 {
 	return -ENOSYS;
 }
 #endif
-
 int msm_dump_gpios(struct seq_file *m, int curr_len, char *gpio_buffer);
+
 #endif /* __ASM_ARCH_MSM_GPIO_H */

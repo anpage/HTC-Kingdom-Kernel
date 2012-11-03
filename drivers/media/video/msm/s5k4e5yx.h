@@ -72,12 +72,13 @@ struct s5k4e5yx_reg_t {
 	struct s5k4e5yx_i2c_reg_conf *qtr_mipi;
 	uint16_t qtr_mipi_size;
 
+	struct s5k4e5yx_i2c_reg_conf *fast_video_mipi;
+	uint16_t fast_video_mipi_size;
+
+	struct s5k4e5yx_i2c_reg_conf *fast_video_4x_mipi;
+	uint16_t fast_video_4x_mipi_size;
 	struct s5k4e5yx_i2c_reg_conf *full_mipi;
 	uint16_t full_mipi_size;
-
-	/* for improve shutter lag */
-	struct s5k4e5yx_i2c_reg_conf *full_mipi_zsl;
-	uint16_t full_mipi_size_zsl;
 };
 
 extern struct s5k4e5yx_reg_t s5k4e5yx_regs;

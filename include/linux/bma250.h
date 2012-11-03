@@ -7,6 +7,7 @@
 #include <linux/ioctl.h>
 
 #define BMA250_I2C_NAME "bma250"
+#define BMA250_I2C_NAME_REMOVE_ECOMPASS "bma250_no_ecmps"
 
 #define BMAIO			0xA1
 
@@ -61,6 +62,8 @@ struct bma250_platform_data {
 	int chip_layout;
 	int calibration_mode;
 	int gs_kvalue;
+	unsigned int (*G_Sensor_Compass_POR)(void);
+	short layouts[4][3][3];
 };
 
 #endif

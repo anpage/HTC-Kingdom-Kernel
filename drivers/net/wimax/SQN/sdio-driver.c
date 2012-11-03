@@ -30,7 +30,7 @@
 #define IGNORE_CARRIER_STATE 1
 
 static u8 __sqn_per_file_dbg = 0;
-u8* __sqn_main_per_file_dbg_addr(void)
+u8 *__sqn_main_per_file_dbg_addr(void)
 {
 	return &__sqn_per_file_dbg;
 }
@@ -61,9 +61,6 @@ module_param(firmware_name, charp, S_IRUGO);
 module_param(load_firmware, bool, S_IRUGO);
 
 struct sqn_private *g_priv = 0;
-
-//reference sdio-driver.c
-extern const uint8_t  ss_macaddr[ETH_ALEN];
 
 /*******************************************************************/
 /* Network interface functions                                     */
@@ -115,16 +112,16 @@ int sqn_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	sqn_pr_dbg("skb->len = %d\n", skb->len);
 	spin_lock_irqsave(&priv->drv_lock, irq_flags);
 
-	//HTC code: for DDTM
-	if(drop_packet){
-		eth = (struct ethhdr*) skb->data;
-		if(memcmp(eth->h_dest, ss_macaddr, ETH_ALEN) != 0){
+	/* HTC code: for DDTM */
+	if (drop_packet) {
+		eth = (struct ethhdr *) skb->data;
+		if (memcmp(eth->h_dest, ss_macaddr, ETH_ALEN) != 0) {
 			sqn_pr_dbg("HTC drop_packet enabled: not THP, drop it\n");
 			priv->stats.tx_dropped++;
 			priv->stats.tx_errors++;
 			dev_kfree_skb_any(skb);
 			goto out;
-		}else{
+		} else{
 			sqn_pr_dbg("HTC drop_packet enabled: THP, let it live\n");
 		}
 	}
@@ -235,7 +232,7 @@ static int sqn_tx_thread(void *data)
 		}
 		spin_unlock_irqrestore(&priv->drv_lock, irq_flags);
 
-		rv= priv->hw_host_to_card(priv);
+		rv = priv->hw_host_to_card(priv);
 		if (rv)
 			sqn_pr_dbg("failed to send PDU: %d\n", rv);
 	}
@@ -324,7 +321,8 @@ static struct net_device_stats *sqn_get_stats(struct net_device *dev)
 /*******************************************************************/
 
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29)
+/* #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29) */
+#if 1
 static const struct net_device_ops sqn_netdev_ops = {
 	.ndo_open		= sqn_dev_open
 	, .ndo_stop		= sqn_dev_stop
@@ -346,7 +344,7 @@ struct sqn_private *sqn_add_card(void *card, struct device *realdev)
 
 	sqn_pr_enter();
 
-	if (!dev) {	
+	if (!dev) {
 		sqn_pr_err("init wimaxX device failed\n");
 		goto done;
 	}
@@ -370,20 +368,23 @@ struct sqn_private *sqn_add_card(void *card, struct device *realdev)
 	priv->card = card;
 
 	/* Setup the OS Interface to our functions */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 29)
+/* #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 29) */
+#if 0
 	dev->open = sqn_dev_open;
 	dev->stop = sqn_dev_stop;
 	dev->hard_start_xmit = sqn_hard_start_xmit;
 	dev->tx_timeout = sqn_tx_timeout;
 	dev->get_stats = sqn_get_stats;
-#else
+/* #else */
+#endif
+#if 1
 	dev->netdev_ops = &sqn_netdev_ops;
 #endif
 
 	/* TODO: Make multicast possible */
 	dev->flags &= ~IFF_MULTICAST;
 
-	//wimax interface mtu must be 1400 (in spec)
+	/* wimax interface mtu must be 1400 (in spec) */
 	dev->mtu = 1400;
 	SET_NETDEV_DEV(dev, realdev);
 

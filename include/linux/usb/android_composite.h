@@ -20,11 +20,13 @@
 #include <linux/usb/composite.h>
 #include <linux/if_ether.h>
 
+#if 0
 struct android_usb_function {
 	struct list_head	list;
 	char			*name;
 	int 			(*bind_config)(struct usb_configuration *c);
 };
+#endif
 
 struct android_usb_product {
 	/* Vendor ID for this set of functions.
@@ -73,7 +75,53 @@ struct android_usb_platform_data {
 	 */
 	int num_functions;
 	char **functions;
+
 	void (*enable_fast_charge)(bool enable);
+	bool RndisDisableMPDecision;
+
+	/* To indicate the GPIO num for USB id
+	 */
+	int usb_id_pin_gpio;
+
+	/* For QCT diag
+	 */
+	int (*update_pid_and_serial_num)(uint32_t, const char *);
+
+	/* For multiple serial function support
+	 * "Ex: tty:serial[,sdio:modem_mdm][,smd:modem]"
+	 */
+	char *fserial_init_string;
+
+	/* The gadget driver need to initial at beginning
+	 */
+	unsigned char diag_init:1;
+	unsigned char modem_init:1;
+	unsigned char rmnet_init:1;
+	unsigned char reserved:5;
+
+	/* ums initial parameters */
+
+	/* number of LUNS */
+	int nluns;
+	/* bitmap of lun to indicate cdrom disk.
+	 * NOTE: Only support one cdrom disk
+	 * and it must be located in last lun */
+	int cdrom_lun;
+	int cdrom_cttype;
+
+
+	/* Re-match the product ID.
+	 * In some devices, the product id is specified by vendor request.
+	 *
+	 * @param product_id: the common product id
+	 * @param intrsharing: 1 for internet sharing, 0 for internet pass through
+	 */
+	int (*match)(int product_id, int intrsharing);
+
+	/* request usb controller/phy reset during function switch
+	 * in some platfrom, we need this behavior to improve the USB stability
+	 */
+	int req_reset_during_switch_func;
 };
 
 /* Platform data for "usb_mass_storage" driver. */
@@ -83,14 +131,9 @@ struct usb_mass_storage_platform_data {
 	char *product;
 	int release;
 
+	char can_stall;
 	/* number of LUNS */
 	int nluns;
-
-	/* bitmap of lun to indicate cdrom disk.
-	 * NOTE: Only support one cdrom disk
-	 * and it must be located in last lun */
-	int cdrom_lun;
-	int cdrom_cttype;
 };
 
 /* Platform data for USB ethernet driver. */
@@ -100,10 +143,14 @@ struct usb_ether_platform_data {
 	const char *vendorDescr;
 };
 
+#if defined(CONFIG_MACH_HOLIDAY)
+extern u8 in_usb_tethering;
+#endif
+
+#if 0
 extern void android_register_function(struct android_usb_function *f);
-extern int android_get_model_id(void);
-extern void android_enable_function(struct usb_function *f, int enable);
-extern int android_switch_function(unsigned func);
-extern unsigned android_switch_sum(void);
+extern int android_enable_function(struct usb_function *f, int enable);
+#endif
+
 
 #endif	/* __LINUX_USB_ANDROID_H */

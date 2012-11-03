@@ -53,8 +53,6 @@ static uid_t binder_context_mgr_uid = -1;
 static int binder_last_id;
 static struct workqueue_struct *binder_deferred_workqueue;
 
-#define BINDER_BUG_DEBUG 1	/* This's for debug purpose, remove related codes after solving issue. */
-
 #define BINDER_DEBUG_ENTRY(name) \
 static int binder_##name##_open(struct inode *inode, struct file *file) \
 { \
@@ -368,41 +366,6 @@ struct binder_transaction {
 static void
 binder_defer_work(struct binder_proc *proc, enum binder_deferred_state defer);
 
-#if BINDER_BUG_DEBUG
-void debug_binder_buffer_info(struct binder_proc *proc, struct binder_buffer *buffer)
-{
-	if (!buffer->free) {
-		int debug_i = 0;
-		printk(KERN_ERR "%s: bug_on()\n", __func__);
-		printk(KERN_ERR "task_name : %s\n", proc->tsk->comm);
-		printk(KERN_ERR "binder_buffer->free : %d\n", buffer->free);
-		printk(KERN_ERR "binder_buffer->allow_user_free : %d\n", buffer->allow_user_free);
-		printk(KERN_ERR "binder_buffer->async_transaction : %d\n", buffer->async_transaction);
-		printk(KERN_ERR "binder_buffer->debug_id : %d\n", buffer->debug_id);
-		printk(KERN_ERR "binder_buffer->data_size : %d\n", buffer->data_size);
-		printk(KERN_ERR "binder_buffer->offsets_size : %d\n", buffer->offsets_size);
-
-		{
-			unsigned int *offset = (unsigned int *)buffer;
-			int count = 0x800;
-			while(count > 0)
-			{
-				printk(KERN_ERR "0x%x : %x", (unsigned int)offset, *offset);
-				if(count % 4 == 0)
-					printk(KERN_ERR "\n");
-				count--;
-				offset++;
-			}
-		}
-
-		while (buffer->data[debug_i]) {
-			printk(KERN_ERR "binder_buffer->offsets_size : %x\n", buffer->data[debug_i]);
-			debug_i++;
-		}
-	}
-}
-#endif
-
 /*
  * copied from get_unused_fd_flags
  */
@@ -468,6 +431,9 @@ repeat:
 
 out:
 	spin_unlock(&files->file_lock);
+#ifdef CONFIG_DEBUG_FDLEAK
+	fd_num_check(files, fd);
+#endif
 	return error;
 }
 
@@ -588,9 +554,6 @@ static void binder_insert_free_buffer(struct binder_proc *proc,
 	while (*p) {
 		parent = *p;
 		buffer = rb_entry(parent, struct binder_buffer, rb_node);
-#if BINDER_BUG_DEBUG
-		debug_binder_buffer_info(proc, buffer);
-#endif
 		BUG_ON(!buffer->free);
 
 		buffer_size = binder_buffer_size(proc, buffer);
@@ -788,9 +751,6 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 
 	while (n) {
 		buffer = rb_entry(n, struct binder_buffer, rb_node);
-#if BINDER_BUG_DEBUG
-		debug_binder_buffer_info(proc, buffer);
-#endif
 		BUG_ON(!buffer->free);
 		buffer_size = binder_buffer_size(proc, buffer);
 
@@ -1659,7 +1619,6 @@ static void binder_transaction(struct binder_proc *proc,
 					proc->pid, thread->pid,
 					fp->binder, node->debug_id,
 					fp->cookie, node->cookie);
-				return_error = BR_FAILED_REPLY;
 				goto err_binder_get_ref_for_node_failed;
 			}
 			ref = binder_get_ref_for_node(target_proc, node);
@@ -2934,7 +2893,7 @@ static int exist_proc_entry(const char *name, struct proc_dir_entry *parent)
 	int len;
 
 	len = strlen(name);
-	for (p = &parent->subdir; *p; p=&(*p)->next ) {
+	for (p = &parent->subdir; *p; p = &(*p)->next) {
 		if (proc_match(len, name, *p)) {
 			de = *p;
 			*p = de->next;
@@ -2979,9 +2938,9 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	if (binder_proc_dir_entry_proc) {
 		char strbuf[11];
 		snprintf(strbuf, sizeof(strbuf), "%u", proc->pid);
-		if (exist_proc_entry(strbuf, binder_proc_dir_entry_proc)) {
+		if (exist_proc_entry(strbuf, binder_proc_dir_entry_proc))
 			remove_proc_entry(strbuf, binder_proc_dir_entry_proc);
-		}
+
 		create_proc_read_entry(strbuf, S_IRUGO,
 				       binder_proc_dir_entry_proc,
 				       procfs_binder_read_proc_proc, proc);

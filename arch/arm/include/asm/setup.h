@@ -127,20 +127,6 @@ struct tag_cmdline {
 	char	cmdline[1];	/* this is the minimum size */
 };
 
-/* Microp version */
-#define ATAG_MICROP_VERSION   0x5441000a
-
-struct tag_microp_version {
-	char ver[4];
-};
-
-/* Light sensor calibration value */
-#define ATAG_ALS	0x5441001b
-
-struct tag_als_kadc {
-	__u32 kadc;
-};
-
 /* acorn RiscPC specific information */
 #define ATAG_ACORN	0x41000101
 
@@ -158,6 +144,13 @@ struct tag_memclk {
 	__u32 fmemclk;
 };
 
+/* Light sensor calibration value */
+#define ATAG_ALS	0x5441001b
+
+struct tag_als_kadc {
+	__u32 kadc;
+};
+
 struct tag {
 	struct tag_header hdr;
 	union {
@@ -168,11 +161,9 @@ struct tag {
 		struct tag_initrd	initrd;
 		struct tag_serialnr	serialnr;
 		struct tag_revision	revision;
-		struct tag_microp_version	microp_version;
-		struct tag_als_kadc als_kadc;
 		struct tag_videolfb	videolfb;
 		struct tag_cmdline	cmdline;
-
+		struct tag_als_kadc als_kadc;
 		/*
 		 * Acorn specific
 		 */
@@ -209,17 +200,12 @@ static struct tagtable __tagtable_##fn __tag = { tag, fn }
 /*
  * Memory map description
  */
-#ifdef CONFIG_ARCH_LH7A40X
-# define NR_BANKS 16
-#else
-# define NR_BANKS 8
-#endif
+#define NR_BANKS 8
 
 struct membank {
-	unsigned long start;
+	phys_addr_t start;
 	unsigned long size;
-	unsigned short node;
-	unsigned short highmem;
+	unsigned int highmem;
 };
 
 struct meminfo {
@@ -229,16 +215,20 @@ struct meminfo {
 
 extern struct meminfo meminfo;
 
-#define for_each_nodebank(iter,mi,no)			\
-	for (iter = 0; iter < (mi)->nr_banks; iter++)	\
-		if ((mi)->bank[iter].node == no)
+#define for_each_bank(iter,mi)				\
+	for (iter = 0; iter < (mi)->nr_banks; iter++)
 
 #define bank_pfn_start(bank)	__phys_to_pfn((bank)->start)
-#define bank_pfn_end(bank)	__phys_to_pfn((bank)->start + (bank)->size)
+#define bank_pfn_end(bank)	(__phys_to_pfn((bank)->start) + \
+						__phys_to_pfn((bank)->size))
 #define bank_pfn_size(bank)	((bank)->size >> PAGE_SHIFT)
 #define bank_phys_start(bank)	(bank)->start
 #define bank_phys_end(bank)	((bank)->start + (bank)->size)
 #define bank_phys_size(bank)	(bank)->size
+
+extern int arm_add_memory(phys_addr_t start, unsigned long size);
+extern void early_print(const char *str, ...);
+extern void dump_machine_table(void);
 
 /*
  * Early command line parameters.

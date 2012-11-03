@@ -23,7 +23,6 @@
 #include <linux/time.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
-#include <linux/smp_lock.h>
 #include <linux/string.h>
 #include <sound/core.h>
 #include <sound/minors.h>
@@ -598,7 +597,7 @@ int __exit snd_info_done(void)
  */
 int snd_info_card_create(struct snd_card *card)
 {
-	char str[16];
+	char str[8];
 	struct snd_info_entry *entry;
 
 	if (snd_BUG_ON(!card))

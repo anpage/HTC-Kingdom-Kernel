@@ -32,10 +32,11 @@
 #include <linux/bug.h>
 #include <linux/irq.h>
 
-// GPIO_WAKEUP
+/* GPIO_WAKEUP */
 #include <linux/gpio.h>
 #include <linux/gpio_event.h>
 #include <linux/interrupt.h>
+#include <linux/mfd/pm8xxx/core.h>
 
 #include "msg.h"
 #include "debugfs.h"
@@ -51,9 +52,6 @@
 int dump_net_pkt = 0;
 int reset_count = 0;
 
-int gFWWakeupHostEvent = 0; // RX wakeup
-int gHostWakeupFWEvent = 0; // TX wakeup
-
 #define RESET_BY_SDIO 0
 #define RESET_BY_WIMAXTRACKER 0
 
@@ -66,7 +64,7 @@ int gHostWakeupFWEvent = 0; // TX wakeup
 #endif
 
 static u8 __sqn_per_file_dbg = 0;
-u8* __sqn_sdio_per_file_dbg_addr(void)
+u8 *__sqn_sdio_per_file_dbg_addr(void)
 {
 	return &__sqn_per_file_dbg;
 }
@@ -80,34 +78,6 @@ static const struct sdio_device_id sqn_sdio_ids[] = {
 };
 MODULE_DEVICE_TABLE(sdio, sqn_sdio_ids);
 
-//HTC:WiMax power ON_OFF function and Card detect function
-extern int mmc_wimax_power(int on);
-extern void mmc_wimax_set_carddetect(int val);
-extern int mmc_wimax_uart_switch(int uart);
-extern int mmc_wimax_set_status(int on);
-extern int mmc_wimax_get_hostwakeup_gpio(void);
-extern int mmc_wimax_get_netlog_status(void);
-extern int mmc_wimax_get_cliam_host_status(void);
-extern int mmc_wimax_set_CMD53_timeout_trigger_counter(int counter);
-extern int mmc_wimax_get_CMD53_timeout_trigger_counter(void);
-extern int mmc_wimax_get_sdio_hw_reset(void);
-extern int mmc_wimax_get_packet_filter(void);
-// Wakeup interrupt
-extern void mmc_wimax_enable_host_wakeup(int on);
-extern int mmc_wimax_get_netlog_withraw_status(void);
-extern int mmc_wimax_get_sdio_interrupt_log(void);
-extern int mmc_wimax_get_sdio_wakelock_log(void);
-extern int mmc_wimax_get_sdio_wakeup_lite_dump(void);
-extern int mmc_wimax_get_hostwakeup_IRQ_ID(void);
-
-extern uint8_t sqn_is_rx_thp_packet(uint8_t  *dest_addr);
-extern uint8_t sqn_is_tx_thp_packet(uint8_t  *src_addr);
-extern int sqn_is_tx_lsp_packet(const struct sk_buff *skb);
-extern int sqn_is_rx_lsp_packet(const struct sk_buff *skb);
-
-extern int mmc_wimax_get_RD_FIFO_LEVEL_ERROR(void);
-
-extern int mmc_wimax_get_wimax_FW_freeze_WK_RX(void);
 /*******************************************************************/
 /* TX handlers                                                     */
 /*******************************************************************/
@@ -125,8 +95,7 @@ static void sqn_sdio_add_skb_to_tx_queue(struct sqn_private *priv
 		skb_queue_head(&card->tx_queue, skb);
 
 	if (skb_queue_len(&card->tx_queue) > TX_QUEUE_MAX_LEN
-		&& !netif_queue_stopped(priv->dev))
-	{
+		&& !netif_queue_stopped(priv->dev)) {
 		sqn_pr_info("tx_queue len %d, disabling netif_queue\n"
 				, skb_queue_len(&card->tx_queue));
 		netif_stop_queue(priv->dev);
@@ -135,14 +104,14 @@ static void sqn_sdio_add_skb_to_tx_queue(struct sqn_private *priv
 	if (!card->waiting_pm_notification
 	    && !wake_lock_active(&card->wakelock_tx)) {
 		if (mmc_wimax_get_sdio_wakelock_log()) {
-			printk("[WIMAX] lock wl_tx,");
+			printk(KERN_INFO "[WIMAX] lock wl_tx,");
 			PRINTRTC;
 		}
-		wake_lock(&card->wakelock_tx); // TX
+		wake_lock(&card->wakelock_tx); /* TX */
 
 		if (wake_lock_active(&card->wakelock_host)) {
 			if (mmc_wimax_get_sdio_wakelock_log()) {
-				printk("[WIMAX] release wl_host,");
+				printk(KERN_INFO "[WIMAX] release wl_host,");
 				PRINTRTC;
 			}
 			wake_unlock(&card->wakelock_host);
@@ -223,7 +192,7 @@ static int sqn_sdio_recover_after_cmd53_timeout(struct sqn_sdio_card *card)
 *
 *	@return error status - 0 if success, !0 otherwise
 */
-static int sqn_sdio_cmd52_read_buf(struct sqn_sdio_card *card, void* buf, int size, int addr)
+static int sqn_sdio_cmd52_read_buf(struct sqn_sdio_card *card, void *buf, int size, int addr)
 {
 	u8 tmpbuf[4] = { 0xa7, 0xa7, 0xa7, 0xa7 };
 	int i = 0;
@@ -244,10 +213,10 @@ static int sqn_sdio_cmd52_read_buf(struct sqn_sdio_card *card, void* buf, int si
 
 	switch (size) {
 	case sizeof(u16):
-		*((u16*)buf) = le16_to_cpup((__le16 *)tmpbuf);
+		*((u16 *)buf) = le16_to_cpup((__le16 *)tmpbuf);
 		break;
 	case sizeof(u32):
-		*((u32*)buf) = le32_to_cpup((__le32 *)tmpbuf);
+		*((u32 *)buf) = le32_to_cpup((__le32 *)tmpbuf);
 		break;
 	default:
 		sqn_pr_err("unsupported buffer size: %d\n", size);
@@ -396,17 +365,17 @@ uint8_t is_thp_packet(uint8_t  *dest_addr);
 int is_lsp_packet(const struct sk_buff *skb);
 #endif
 
-struct sk_buff* sqn_sdio_prepare_skb_for_tx(struct sk_buff *skb)
+struct sk_buff *sqn_sdio_prepare_skb_for_tx(struct sk_buff *skb)
 {
 #define PDU_LEN_SIZE	2
 #define CRC_SIZE	4
 #define PAD_TO_VALUE	512
 
 #if DUMP_NET_PKT
-    struct ethhdr *eth = (struct ethhdr *)skb->data; 
+	struct ethhdr *eth = (struct ethhdr *)skb->data;
 #endif
 
-    /*
+	/*
 	 * Calculate padding, to workaround some SDIO controllers we need to pad
 	 * each TX buffer so it size will be a multiple of PAD_TO_VALUE
 	 */
@@ -417,50 +386,47 @@ struct sk_buff* sqn_sdio_prepare_skb_for_tx(struct sk_buff *skb)
 
 	sqn_pr_dbg("length %d, padding %d\n", skb->len, padding);
 
-	if (skb->len > (SQN_MAX_PDU_LEN - (PDU_LEN_SIZE + CRC_SIZE + padding)))
-	{
-		sqn_pr_dbg("%s: skb length %d error, free skb\n", __func__, skb->len);
+	if (skb->len > (SQN_MAX_PDU_LEN - (PDU_LEN_SIZE + CRC_SIZE + padding))) {
+		sqn_pr_info("%s: skb length %d error, free skb\n", __func__, skb->len);
 		dev_kfree_skb_any(skb);
 		return 0;
 	}
 
 #if DUMP_NET_PKT
-    if (mmc_wimax_get_netlog_status() || gHostWakeupFWEvent) {
-		printk("\n");
-		if (gHostWakeupFWEvent) {
+	if (mmc_wimax_get_netlog_status() || mmc_wimax_get_HostWakeupFWEvent()) {
+		/* printk(KERN_INFO "\n"); */
+		if (mmc_wimax_get_HostWakeupFWEvent()) {
 			sqn_pr_info("HostWakeupFWEvent TX:\n");
-			gHostWakeupFWEvent = 0;
+			mmc_wimax_set_HostWakeupFWEvent(0);
 		}
 
 		sqn_pr_info("TX PDU length %d\n", skb->len);
-		if (sqn_is_tx_thp_packet(eth->h_source)) {;
+		if (sqn_is_tx_thp_packet(eth->h_source)) {
 			sqn_pr_thp_info_dump("TX PDU", skb->data, skb->len);
-		}
-		else if (sqn_is_tx_lsp_packet(skb)) {
+		} else if (sqn_is_tx_lsp_packet(skb)) {
 			sqn_pr_info("TX LSP packet\n");
-		}
-		else { // if (!sqn_lsp_is_tx_lsp_packet(eth->h_source) && !sqn_lsp_is_tx_lsp_packet(skb)) {
-    		sqn_pr_info_dump("TX PDU", skb->data, skb->len);
-			if (mmc_wimax_get_sdio_wakeup_lite_dump()) {
+		} else {
+			/* if (!sqn_lsp_is_tx_lsp_packet(eth->h_source) && !sqn_lsp_is_tx_lsp_packet(skb)) { */
+			sqn_pr_info_dump("TX PDU", skb->data, skb->len);
+			if (mmc_wimax_get_sdio_wakeup_lite_dump())
 				sqn_pr_info_dump_rawdata_lite("TX PDU",  skb->data, skb->len);
-			}
-    	}
-		printk("\n");
-    }
+		}
+		/* printk(KERN_INFO "\n"); */
+	}
 
 	if (mmc_wimax_get_netlog_withraw_status()) {
-    	// if (!sqn_lsp_is_tx_lsp_packet(eth->h_source) && !sqn_lsp_is_tx_lsp_packet(skb))
-		{		
-    		sqn_pr_info("[RAW]-------------------------------------------------------------------\n");
-    		sqn_pr_info("TX PDU length %d\n", skb->len);
-			sqn_pr_info_dump_rawdata("TX PDU",  skb->data, skb->len);			
-    	}
-    }
+		/* if (!sqn_lsp_is_tx_lsp_packet(eth->h_source) && !sqn_lsp_is_tx_lsp_packet(skb)) */
+		{
+			sqn_pr_info("[RAW]-------------------------------------------------------------------\n");
+			sqn_pr_info("TX PDU length %d\n", skb->len);
+			sqn_pr_info_dump_rawdata("TX PDU",  skb->data, skb->len);
+		}
+	}
 #endif
 
-	if (mmc_wimax_get_packet_filter()) {   
+	if (mmc_wimax_get_packet_filter()) {
 		if (sqn_filter_packet_check("TX PDU", skb->data, skb->len)) {
-			//sqn_pr_info("Drop TX packets len:%d\n", skb->len);
+			/* sqn_pr_info("Drop TX packets len:%d\n", skb->len); */
 			dev_kfree_skb_any(skb);
 			return 0;
 		}
@@ -496,8 +462,8 @@ struct sk_buff* sqn_sdio_prepare_skb_for_tx(struct sk_buff *skb)
 	 * Add size of PDU before ethernet frame
 	 * It should be in little endian byte order
 	 */
-	*((u8*)skb->data -2) = (skb->len + CRC_SIZE) & 0xff;
-	*((u8*)skb->data -1) = ((skb->len + CRC_SIZE) >> 8) & 0xff;
+	*((u8 *)skb->data - 2) = (skb->len + CRC_SIZE) & 0xff;
+	*((u8 *)skb->data - 1) = ((skb->len + CRC_SIZE) >> 8) & 0xff;
 	skb_push(skb, PDU_LEN_SIZE);
 
 	/*
@@ -533,7 +499,7 @@ int sqn_sdio_tx_skb(struct sqn_sdio_card *card, struct sk_buff *skb
 				claim_host = 0;
 			}
 			sqn_pr_info("SDIO CMD53 timeout error: TX PDU length %d, PDU[0] 0x%x, PDU[1] 0x%x\n"
-				, skb->len, *((u8*)skb->data), *((u8*)skb->data + 1));
+				, skb->len, *((u8 *)skb->data), *((u8 *)skb->data + 1));
 			/* sqn_sdio_dump_registers(card); */
 			/* sqn_sdio_recover_after_cmd53_timeout(card); */
 		}
@@ -551,40 +517,38 @@ release:
 
 static void sqn_sdio_wake_lock_release_host_timer_fn(unsigned long data)
 {
-	struct sqn_sdio_card *card = (struct sqn_sdio_card*) data;
+	struct sqn_sdio_card *card = (struct sqn_sdio_card *) data;
 
 	sqn_pr_enter();
 
-	/* No care if the TX and RX queues are empty, we can releas a wake_lock_host */	
+	/* No care if the TX and RX queues are empty, we can releas a wake_lock_host */
 	if (mmc_wimax_get_sdio_wakelock_log()) {
-		printk("[WIMAX] release wl_host2,");
+		printk(KERN_INFO "[WIMAX] release wl_host2,");
 		PRINTRTC;
 	}
 
-	if (wake_lock_active(&card->wakelock_host)) {
-		wake_unlock(&card->wakelock_host); // Release time_out		
-	}
+	if (wake_lock_active(&card->wakelock_host))
+		wake_unlock(&card->wakelock_host); /* Release time_out */
 
 	sqn_pr_leave();
 }
 
 static void sqn_sdio_wake_lock_release_tx_timer_fn(unsigned long data)
 {
-	struct sqn_sdio_card *card = (struct sqn_sdio_card*) data;
+	struct sqn_sdio_card *card = (struct sqn_sdio_card *) data;
 
 	sqn_pr_enter();
 
 	/* if TX queues are empty, we can releas a wake_lock */
-	if (skb_queue_empty(&card->tx_queue))
-	{
+	if (skb_queue_empty(&card->tx_queue)) {
 		if (mmc_wimax_get_sdio_wakelock_log()) {
-			printk("[WIMAX] release wl_tx,");
+			printk(KERN_INFO "[WIMAX] release wl_tx,");
 			PRINTRTC;
 		}
 		if (wake_lock_active(&card->wakelock_host))
-			wake_unlock(&card->wakelock_host); // Release time_out
+			wake_unlock(&card->wakelock_host); /* Release time_out */
 		if (wake_lock_active(&card->wakelock_tx))
-			wake_unlock(&card->wakelock_tx);		
+			wake_unlock(&card->wakelock_tx);
 	}
 
 	sqn_pr_leave();
@@ -592,19 +556,18 @@ static void sqn_sdio_wake_lock_release_tx_timer_fn(unsigned long data)
 
 static void sqn_sdio_wake_lock_release_rx_timer_fn(unsigned long data)
 {
-	struct sqn_sdio_card *card = (struct sqn_sdio_card*) data;
+	struct sqn_sdio_card *card = (struct sqn_sdio_card *) data;
 
 	sqn_pr_enter();
 
 	/* if RX queues are empty, we can releas a wake_lock */
-	if (skb_queue_empty(&card->rx_queue))
-	{
+	if (skb_queue_empty(&card->rx_queue)) {
 		if (mmc_wimax_get_sdio_wakelock_log()) {
-			printk("[WIMAX] release wl_rx,");
+			printk(KERN_INFO "[WIMAX] release wl_rx,");
 			PRINTRTC;
 		}
 		if (wake_lock_active(&card->wakelock_host))
-			wake_unlock(&card->wakelock_host); // Release time_out		
+			wake_unlock(&card->wakelock_host); /* Release time_out */
 		if (wake_lock_active(&card->wakelock_rx))
 			wake_unlock(&card->wakelock_rx);
 	}
@@ -622,8 +585,7 @@ static void sqn_sdio_release_wake_lock_host(struct sqn_sdio_card *card)
 
 	/* if TX and RX queues are empty, we will wait some time before
 	 * doing actual wake_lock release */
-	if (wake_lock_active(&card->wakelock_host))
-	{
+	if (wake_lock_active(&card->wakelock_host)) {
 		sqn_pr_dbg("shedule wake_lock_host release in %d sec\n"
 			, SQN_WAKE_LOCK_RELEASE_DELAY_SECONDS);
 
@@ -644,8 +606,7 @@ static void sqn_sdio_release_wake_lock_tx(struct sqn_sdio_card *card)
 	/* if TX and RX queues are empty, we will wait some time before
 	 * doing actual wake_lock release */
 	if ((wake_lock_active(&card->wakelock_tx) || wake_lock_active(&card->wakelock_host))
-		&& skb_queue_empty(&card->tx_queue))
-	{
+		&& skb_queue_empty(&card->tx_queue)) {
 		sqn_pr_dbg("shedule wake_lock_tx release in %d sec\n"
 			, SQN_WAKE_LOCK_RELEASE_DELAY_SECONDS);
 
@@ -667,8 +628,7 @@ static void sqn_sdio_release_wake_lock_rx(struct sqn_sdio_card *card)
 	/* if TX and RX queues are empty, we will wait some time before
 	 * doing actual wake_lock release */
 	if ((wake_lock_active(&card->wakelock_rx) || wake_lock_active(&card->wakelock_host))
-		&& skb_queue_empty(&card->rx_queue))
-	{
+		&& skb_queue_empty(&card->rx_queue)) {
 		sqn_pr_dbg("shedule wake_lock_rx release in %d sec\n"
 			, SQN_WAKE_LOCK_RELEASE_DELAY_SECONDS);
 
@@ -694,7 +654,7 @@ static int sqn_sdio_host_to_card(struct sqn_private *priv)
 	sqn_pr_enter();
 
 	if (priv->removed) {
-		// sqn_pr_warn("%s: card/driver is removed, do nothing\n", __func__);
+		/* sqn_pr_warn("%s: card/driver is removed, do nothing\n", __func__); */
 		goto drv_removed;
 	}
 
@@ -706,9 +666,8 @@ static int sqn_sdio_host_to_card(struct sqn_private *priv)
 		 * to send PDU even if wake up failed
 		 */
 		sqn_wakeup_fw(card->func);
-	} else {
+	} else
 		spin_unlock_irqrestore(&priv->drv_lock, irq_flags);
-	}
 
 	if (0 == sqn_sdio_get_rstn_wr_fifo_flag(priv)) {
 		rv = -1;
@@ -726,7 +685,8 @@ static int sqn_sdio_host_to_card(struct sqn_private *priv)
 
 	while (!priv->removed && !sqn_sdio_is_tx_queue_empty(priv)) {
 		skb = skb_dequeue(&card->tx_queue);
-		if (0 != (skb = sqn_sdio_prepare_skb_for_tx(skb))) {
+		skb = sqn_sdio_prepare_skb_for_tx(skb);
+		if (0 != skb) {
 			if (0 == level) {
 				int count = 20;
 				while (0 == (level = sqn_sdio_get_wr_fifo_level(priv))) {
@@ -748,8 +708,7 @@ static int sqn_sdio_host_to_card(struct sqn_private *priv)
 
 			if (!card->waiting_pm_notification
 			    && netif_queue_stopped(priv->dev)
-			    && skb_queue_len(&card->tx_queue) < TX_QUEUE_WM_LEN)
-			{
+			    && skb_queue_len(&card->tx_queue) < TX_QUEUE_WM_LEN) {
 				sqn_pr_info("tx_queue len %d, enabling netif_queue\n"
 					, skb_queue_len(&card->tx_queue));
 				netif_wake_queue(priv->dev);
@@ -770,15 +729,14 @@ out:
 
 	sqn_sdio_release_wake_lock_tx(card);
 
-	if (rv == 0) {
+	if (rv == 0)
 		reset_count = 0;
-	}
 
 	if ((0 != rv) || (mmc_wimax_get_CMD53_timeout_trigger_counter())) {
 		/*
 		 * Failed to send PDU - assume that card was removed or
 		 * crashed/reset so initiate card detection.
- 		 */
+		 */
 
 		if (mmc_wimax_get_CMD53_timeout_trigger_counter()) {
 			sqn_pr_info("Force CMD53 timeout to reset SDIO!\n");
@@ -786,43 +744,29 @@ out:
 		}
 
 		reset_count++;
-        /* Reset WiMAX chip	*/
-        if (mmc_wimax_get_sdio_hw_reset() && (reset_count > 5)) { /* mmc_wimax_get_sdio_hw_reset */
+		/* Reset WiMAX chip	*/
+		if (mmc_wimax_get_sdio_hw_reset() && (reset_count > 5)) { /* mmc_wimax_get_sdio_hw_reset */
 
-            sqn_pr_info("reset WiMAX chip by SDIO in time#%d\n", reset_count);
+			sqn_pr_info("reset WiMAX chip by SDIO in time#%d\n", reset_count);
 			reset_count = 0;
 
-    		/* HW Reset */
-    		mmc_wimax_power(0);
-    		msleep(5);
-    		mmc_wimax_power(1); 
-    		// To avoid re-initialized SDIO card failed
-    		priv->removed = 1;
-    
-    		sqn_pr_err("card seems to be dead/removed - initiate reinitialization\n");
-    		mmc_detect_change(card->func->card->host, 1); 		        
-    		
-    		/* SW Reset */
-    		/* It could avoid we hang in SDIO CMD53 timeout and recovery wimax again. */
-    		/*
-    		netif_carrier_off(priv->dev);
-    		priv->removed = 1;
-    		sqn_sdio_claim_host(card->func);
-    		// software card reset 
-    		sdio_writeb(card->func, 0, SQN_H_GRSTN, &rv);
-    		sqn_sdio_release_host(card->func);
-     		mmc_detect_change(card->func->card->host, 0);	
-    		*/
-        }
-        else
-        {
+			/* HW Reset */
+			mmc_wimax_power(0);
+			msleep(5);
+			mmc_wimax_power(1);
+			/* To avoid re-initialized SDIO card failed */
+			priv->removed = 1;
+
+			sqn_pr_err("card seems to be dead/removed - initiate reinitialization\n");
+			mmc_detect_change(card->func->card->host, 1);
+		} else {
 #if RESET_BY_WIMAXTRACKER
-            sqn_pr_info("reset WiMAX chip by WimaxTracker\n");
-            udp_broadcast(1,"ResetWimax_BySDIO\n");		
+			sqn_pr_info("reset WiMAX chip by WimaxTracker\n");
+			udp_broadcast(1, "ResetWimax_BySDIO\n");
 #else
-            sqn_pr_info("No reset WiMAX chip in time#%d\n", reset_count);	
-#endif		            
-        } // mmc_wimax_get_sdio_hw_reset ]		
+			sqn_pr_info("No reset WiMAX chip in time#%d\n", reset_count);
+#endif
+		} /* mmc_wimax_get_sdio_hw_reset ] */
 	}
 drv_removed:
 	sqn_pr_leave();
@@ -841,7 +785,6 @@ free_skb:
 	goto out;
 }
 
-
 /*******************************************************************/
 /* RX handlers                                                     */
 /*******************************************************************/
@@ -849,7 +792,7 @@ static void sqn_sdio_process_rx_queue(struct work_struct *work)
 {
 	struct sqn_private *priv = container_of(work, struct sqn_private
 		, rx_work_struct);
-	struct sqn_sdio_card *card = (struct sqn_sdio_card*) priv->card;
+	struct sqn_sdio_card *card = (struct sqn_sdio_card *) priv->card;
 	struct sk_buff *skb = 0;
 	u8 need_to_ulock_mutex = 0;
 
@@ -867,8 +810,7 @@ static void sqn_sdio_process_rx_queue(struct work_struct *work)
 	while (!priv->removed && 0 != (skb = skb_dequeue(&card->rx_queue))) {
 		sqn_rx_process(card->priv->dev, skb);
 		if (waitqueue_active(&priv->rx_waitq)
-			&& skb_queue_len(&card->rx_queue) < RX_QUEUE_WM_LEN)
-		{
+			&& skb_queue_len(&card->rx_queue) < RX_QUEUE_WM_LEN) {
 			sqn_pr_info("rx_queue len %d, enabling rx\n"
 				, skb_queue_len(&card->rx_queue));
 			wake_up_interruptible(&priv->rx_waitq);
@@ -892,11 +834,11 @@ static int sqn_sdio_card_to_host(struct sqn_sdio_card *card)
 	u16 level = 0;
 	int rv = 0;
 	u8 need_to_ulock_mutex = 0;
-	
+
 	sqn_pr_enter();
 
 	if (card->priv->removed) {
-		// sqn_pr_warn("%s: card/driver is removed, do nothing\n", __func__);
+		/* sqn_pr_warn("%s: card/driver is removed, do nothing\n", __func__); */
 		goto drv_removed;
 	}
 
@@ -933,7 +875,7 @@ check_level:
 	while (!card->priv->removed && level--) {
 		struct sk_buff *skb = 0;
 #if DUMP_NET_PKT
-        struct ethhdr *eth = 0;
+		struct ethhdr *eth = 0;
 #endif
 		u16 size = 0;
 
@@ -978,37 +920,31 @@ check_level:
 
 #if DUMP_NET_PKT
 
-		if (mmc_wimax_get_netlog_status() || gFWWakeupHostEvent) {		
-			printk("\n");
-			if (gFWWakeupHostEvent) {				
+		if (mmc_wimax_get_netlog_status() || mmc_wimax_get_FWWakeupHostEvent()) {
+			/* printk(KERN_INFO "\n"); */
+			if (mmc_wimax_get_FWWakeupHostEvent()) {
 				sqn_pr_info("FWWakeupHostEvent RX:\n");
-				gFWWakeupHostEvent = 0;
-			} 
-			// else		
-			//	sqn_pr_info("\n[PRT]-------------------------------------------------------------------\n");
+				mmc_wimax_set_FWWakeupHostEvent(0);
+			}
+			eth = (struct ethhdr *)skb->data;
 
-    		eth = (struct ethhdr *)skb->data; 			
-    		
 			sqn_pr_info("RX PDU length %d\n", skb->len);
 			if (sqn_is_rx_thp_packet(eth->h_dest)) {
 				sqn_pr_thp_info_dump("RX PDU", skb->data, skb->len);
-			}
-			else if (sqn_is_rx_lsp_packet(skb)) {
+			} else if (sqn_is_rx_lsp_packet(skb)) {
 				sqn_pr_info("RX LSP packet\n");
-			}
-    		else { // if (!sqn_lsp_is_rx_lsp_packet(eth->h_dest) && !is_lsp_packet(skb)) {		
+			} else {
 				sqn_pr_info_dump("RX PDU", skb->data, skb->len);
-				if (mmc_wimax_get_sdio_wakeup_lite_dump()) {
-					sqn_pr_info_dump_rawdata_lite("RX PDU",  skb->data, skb->len);				
-				}
-    		};
-			printk("\n");
-        }
+				if (mmc_wimax_get_sdio_wakeup_lite_dump())
+					sqn_pr_info_dump_rawdata_lite("RX PDU",  skb->data, skb->len);
+			}
+			/* printk(KERN_INFO "\n"); */
+		}
 
 		if (mmc_wimax_get_netlog_withraw_status()) {
-			eth = (struct ethhdr *)skb->data; 
-			// if (!sqn_lsp_is_rx_lsp_packet(eth->h_dest) && !is_lsp_packet(skb))						
-			{			
+			eth = (struct ethhdr *)skb->data;
+			/* if (!sqn_lsp_is_rx_lsp_packet(eth->h_dest) && !is_lsp_packet(skb)) */
+			{
 				sqn_pr_info("[RAW]-------------------------------------------------------------------\n");
 				sqn_pr_info("RX PDU length %d\n", skb->len);
 				sqn_pr_info_dump_rawdata("RX PDU",  skb->data, skb->len);
@@ -1016,9 +952,8 @@ check_level:
 		}
 #endif
 
-		if (sqn_handle_lsp_packet(card->priv, skb)) {
- 			continue;
-		}
+		if (sqn_handle_lsp_packet(card->priv, skb))
+			continue;
 		/*
 		 * If we have some not LSP PDUs to read, then card is not
 		 * asleep any more, so we should notify waiters about this
@@ -1030,24 +965,23 @@ check_level:
 		}
 
 		if (!card->waiting_pm_notification
-		    && !wake_lock_active(&card->wakelock_rx))
-		{
+		    && !wake_lock_active(&card->wakelock_rx)) {
 			if (mmc_wimax_get_sdio_wakelock_log()) {
-				printk("[WIMAX] lock wl_rx,");
+				printk(KERN_INFO "[WIMAX] lock wl_rx,");
 				PRINTRTC;
 			}
-			wake_lock(&card->wakelock_rx); // RX
+			wake_lock(&card->wakelock_rx); /* RX */
 
 			if (wake_lock_active(&card->wakelock_host)) {
 				if (mmc_wimax_get_sdio_wakelock_log()) {
-					printk("[WIMAX] release wl_host,");
+					printk(KERN_INFO "[WIMAX] release wl_host,");
 					PRINTRTC;
 				}
 				wake_unlock(&card->wakelock_host);
 			}
 		}
-		
-        /*
+
+		/*
 		 * Don't use internal RX queue, because kernel has its own.
 		 * Just push RX packet directly to kernel
 		 */
@@ -1059,7 +993,7 @@ check_level:
 	goto check_level;
 out:
 	sqn_sdio_release_wake_lock_rx(card);
- 	if (need_to_ulock_mutex && mutex_is_locked(&card->rx_mutex)) {
+	if (need_to_ulock_mutex && mutex_is_locked(&card->rx_mutex)) {
 		mutex_unlock(&card->rx_mutex);
 		sqn_pr_dbg("release RX mutex\n");
 	}
@@ -1067,7 +1001,6 @@ drv_removed:
 	sqn_pr_leave();
 	return rv;
 }
-
 
 /*******************************************************************/
 /* Interrupt handling                                              */
@@ -1095,13 +1028,13 @@ retry_LSB:
 	status = sdio_readb(func, SQN_SDIO_IT_STATUS_LSBS, &rc);
 
 	if (!rc) {
-		// sqn_pr_info("%s: read interrupt(LSB) successful at #%d!\n", __func__, retry);
+		/* sqn_pr_info("%s: read interrupt(LSB) successful at #%d!\n", __func__, retry); */
 		;
 	} else {
 		sqn_pr_info("%s: read interrupt(LSB) failed at #%d!\n", __func__, retry);
 	}
 
-	if (rc && retry<5) {
+	if (rc && retry < 5) {
 		retry++;
 		goto retry_LSB;
 	}
@@ -1124,13 +1057,13 @@ retry_ClearLSB_IN_WR_FIFO2:
 				SQN_SDIO_IT_STATUS_LSBS, &rc);
 
 		if (!rc) {
-			// sqn_pr_info("%s: clear interrupt(LSB) successful at #%d!\n", __func__, retry);
+			/* sqn_pr_info("%s: clear interrupt(LSB) successful at #%d!\n", __func__, retry); */
 			;
 		} else {
 			sqn_pr_info("%s: clear interrupt(LSB) failed at #%d!\n", __func__, retry);
 		}
 
-		if (rc && retry<5) {
+		if (rc && retry < 5) {
 			retry++;
 			goto retry_ClearLSB_IN_WR_FIFO2;
 		}
@@ -1139,7 +1072,6 @@ retry_ClearLSB_IN_WR_FIFO2:
 	if (status & SQN_SDIO_IT_RD_FIFO2_WM) {
 		rc = sqn_sdio_card_to_host(card);
 
-		//if (rc) {
 		if (rc || mmc_wimax_get_RD_FIFO_LEVEL_ERROR()) {
 			sqn_pr_err("can't read data from card, error %d\n", rc);
 
@@ -1149,44 +1081,36 @@ retry_ClearLSB_IN_WR_FIFO2:
 				sqn_pr_info("Read data from card Failed successively 20 time! Disabled RX interrupt now!\n");
 
 				DisableIT_retry = 0;
-			
+
 retry_DisableIT_LSB:
 				/* disable LSB */
 				sdio_writeb(func, 0, SQN_SDIO_IT_EN_LSBS, &rc);
-			
-				if (!rc) {
+
+				if (!rc)
 					sqn_pr_info("disabled interrupt(LSB) successful at #%d!\n", retry);
-				} else {
+				else
 					sqn_pr_info("disabled interrupt(LSB) failed at #%d!\n", retry);
-				}
-			
-				if (rc && DisableIT_retry<5) {
+
+				if (rc && DisableIT_retry < 5) {
 					DisableIT_retry++;
 					goto retry_DisableIT_LSB;
 				}
-			
+
 				DisableIT_retry = 0;
 
-				if(mmc_wimax_get_wimax_FW_freeze_WK_RX())
-				{
+				if (mmc_wimax_get_wimax_FW_freeze_WK_RX()) {
 					sqn_pr_info("Try to disable interrupt at host side: \n");
-					sqn_pr_info("disable MMC_CAP_SDIO_IRQ & enable_sdio_irq 0,host->caps %lx\n",host->caps);
+					sqn_pr_info("disable MMC_CAP_SDIO_IRQ & enable_sdio_irq 0, host->caps %lx\n", host->caps);
 					host->caps &= ~MMC_CAP_SDIO_IRQ;
 					host->ops->enable_sdio_irq(host, 0);
 
-					sqn_pr_info("disable GPIO%d wakeup interrupt\n", mmc_wimax_get_hostwakeup_gpio());			
+					sqn_pr_info("disable GPIO%d wakeup interrupt\n", mmc_wimax_get_hostwakeup_gpio());
 					disable_irq_nosync(mmc_wimax_get_hostwakeup_IRQ_ID());
 				}
-
-
-			}
-			else {
+			} else
 				ReadDataFailed_ctr++;
-			}
-		}
-		else {
+		} else
 			ReadDataFailed_ctr = 0;
-		}
 
 		retry = 0;
 
@@ -1196,13 +1120,13 @@ retry_ClearLSB_IN_RD_FIFO2:
 				SQN_SDIO_IT_STATUS_LSBS, &rc);
 
 		if (!rc) {
-			// sqn_pr_info("%s: clear interrupt(LSB) successful at #%d!\n", __func__, retry);
+			/* sqn_pr_info("%s: clear interrupt(LSB) successful at #%d!\n", __func__, retry); */
 			;
 		} else {
 			sqn_pr_info("%s: clear interrupt(LSB) failed at #%d!\n", __func__, retry);
 		}
 
-		if (rc && retry<5) {
+		if (rc && retry < 5) {
 			retry++;
 			goto retry_ClearLSB_IN_RD_FIFO2;
 		}
@@ -1225,16 +1149,16 @@ static int sqn_sdio_it_msb(struct sdio_func *func)
 
 retry_MSB:
 	/* Read the interrupt status */
-	status = sdio_readb(func, SQN_SDIO_IT_STATUS_MSBS, &rc);	
+	status = sdio_readb(func, SQN_SDIO_IT_STATUS_MSBS, &rc);
 
 	if (!rc) {
-		// sqn_pr_info("%s: read interrupt(MSB) successful at #%d!\n", __func__, retry);
+		/* sqn_pr_info("%s: read interrupt(MSB) successful at #%d!\n", __func__, retry); */
 		;
 	} else {
 		sqn_pr_info("%s: read interrupt(MSB) failed at #%d!\n", __func__, retry);
 	}
 
-	if (rc && retry<5) {
+	if (rc && retry < 5) {
 		retry++;
 		goto retry_MSB;
 	}
@@ -1251,13 +1175,13 @@ retry_ClearMSB:
 	sdio_writeb(func, 0xff, SQN_SDIO_IT_STATUS_MSBS, &rc);
 
 	if (!rc) {
-		// sqn_pr_info("%s: clear interrupt(MSB) successful at #%d!\n", __func__, retry);
+		/* sqn_pr_info("%s: clear interrupt(MSB) successful at #%d!\n", __func__, retry); */
 		;
 	} else {
 		sqn_pr_info("%s: clear interrupt(MSB) failed at #%d!\n", __func__, retry);
 	}
 
-	if (rc && retry<5) {
+	if (rc && retry < 5) {
 		retry++;
 		goto retry_ClearMSB;
 	}
@@ -1316,13 +1240,13 @@ retry_EN_LSB:
 
 
 	if (!rv) {
-		// sqn_pr_info("%s: enable interrupt(LSB) successful at #%d!\n", __func__, retry);
+		/* sqn_pr_info("%s: enable interrupt(LSB) successful at #%d!\n", __func__, retry); */
 		;
 	} else {
 		sqn_pr_info("%s: enable interrupt(LSB) failed at #%d!\n", __func__, retry);
 	}
 
-	if (rv && retry<5) {
+	if (rv && retry < 5) {
 		retry++;
 		goto retry_EN_LSB;
 	}
@@ -1338,13 +1262,13 @@ retry_RD_FIFO:
 	sqn_pr_dbg("enabled rd watermark: rv=%d\n", rv);
 
 	if (!rv) {
-		// sqn_pr_info("%s: enable rd watermark successful at #%d!\n", __func__, retry);
+		/* sqn_pr_info("%s: enable rd watermark successful at #%d!\n", __func__, retry); */
 		;
 	} else {
 		sqn_pr_info("%s: enable rd watermark failed at #%d!\n", __func__, retry);
 	}
 
-	if (rv && retry<5) {
+	if (rv && retry < 5) {
 		retry++;
 		goto retry_RD_FIFO;
 	}
@@ -1371,13 +1295,12 @@ retry_LSB:
 	/* disable LSB */
 	sdio_writeb(func, 0, SQN_SDIO_IT_EN_LSBS, &rc);
 
-	if (!rc) {
+	if (!rc)
 		sqn_pr_info("disabled interrupt(LSB) successful at #%d!\n", retry);
-	} else {
+	else
 		sqn_pr_info("disabled interrupt(LSB) failed at #%d!\n", retry);
-	}
 
-	if (rc && retry<5) {
+	if (rc && retry < 5) {
 		retry++;
 		goto retry_LSB;
 	}
@@ -1388,13 +1311,12 @@ retry_MSB:
 	/* disable MSB */
 	sdio_writeb(func, 0, SQN_SDIO_IT_EN_MSBS, &rc);
 
-	if (!rc) {
+	if (!rc)
 		sqn_pr_info("disabled interrupt(MSB) successful! at #%d!\n", retry);
-	} else {
+	else
 		sqn_pr_info("disabled interrupt(MSB) failed! at #%d!\n", retry);
-	}
 
-	if (rc && retry<5) {
+	if (rc && retry < 5) {
 		retry++;
 		goto retry_MSB;
 	}
@@ -1541,8 +1463,7 @@ static int check_boot_from_host_mode(struct sdio_func *func)
 	status = sdio_readb(func, SQN_H_BOOT_FROM_SPI, &rv);
 	sdio_release_host(func);
 
-	if (rv)
-	{
+	if (rv)	{
 		sqn_pr_err("can't read boot flags from device");
 		return 0;
 	}
@@ -1575,8 +1496,7 @@ static int sqn_check_card_id(struct sdio_func *func)
 	}
 
 	if (manf_id != SDIO_VENDOR_ID_SEQUANS
-	    || card_id != SDIO_DEVICE_ID_SEQUANS_SQN1130)
-	{
+	    || card_id != SDIO_DEVICE_ID_SEQUANS_SQN1130) {
 		sqn_pr_info("found card with UNSUPPORTED manf_id=%x card_id=%x\n"
 			, manf_id, card_id);
 		rv = 0;
@@ -1652,8 +1572,7 @@ static u8 sqn_get_card_version(struct sdio_func *func)
 #define SQN1130_MAJOR_VERSION 0x06
 #define SQN12x0_MAJOR_VERSION 0x0a
 
-	if (SQN1130_MAJOR_VERSION == (version & 0xff))
-	{
+	if (SQN1130_MAJOR_VERSION == (version & 0xff)) {
 		sqn_pr_info("found SQN_1130 card with version id 0x%x\n"
 			, version);
 		rv = SQN_1130;
@@ -1673,51 +1592,37 @@ out:
 	return rv;
 }
 
-
-extern u8 _g_card_sleeps;
-extern struct sqn_private *g_priv;
-struct msmsdcc_host;
-
-int msmsdcc_enable_clocks(struct msmsdcc_host *host);
-void msmsdcc_disable_clocks(struct msmsdcc_host *host, int deferr);
-int msmsdcc_get_sdc_clocks(struct msmsdcc_host *host);
-
-int sqn_sdio_get_sdc_clocks(void);
-void sqn_sdio_set_sdc_clocks(int on);
 int sqn_sdio_notify_host_wakeup(void);
 
 static irqreturn_t wimax_wakeup_gpio_irq_handler(int irq, void *dev_id)
 {
 	struct sqn_sdio_card *card = g_priv->card;
 	struct msmsdcc_host *msm_host = mmc_priv(card->func->card->host);
+    struct mmc_card *mmc_card = card->func->card;
 
 	sqn_pr_enter();
 
-	// To avoid flush the logging in kmsg, remove it. 
-	if (mmc_wimax_get_sdio_interrupt_log()) {
+	/* To avoid flush the logging in kmsg, remove it. */
+	/* We have two wakeup source - async sdio irq and host wake up. To debug this, dump the gpio wakeup log */
+	/* if (mmc_wimax_get_sdio_interrupt_log()) { */
+	if (1) {
 		if (printk_ratelimit())
-			sqn_pr_info("WiMAX GPIO interrupt\n");
+			printk(KERN_INFO "WiMAX GPIO interrupt\n");
 	}
-	
+
+    mmc_wimax_set_FWWakeupHostEvent(1); /* To enable RX Wakeup reason dumping */
+
+#if 0
 	if (!sqn_sdio_get_sdc_clocks()) {
-
-		// this wake_lock is necessary to prevent CPU suspend,but SDIO CLK enable timing case.
-		if (!card->waiting_pm_notification
-		    && !wake_lock_active(&card->wakelock_host)) {	
-			if (mmc_wimax_get_sdio_wakelock_log()) {	
-				if (mmc_wimax_get_sdio_wakelock_log()) {
-					printk("[WIMAX] lock wl_host,");
-					PRINTRTC;
-				}
-			}
-			wake_lock(&card->wakelock_host); // HOST WAKEUP
-
-			gFWWakeupHostEvent = 1;
-		}
-
+		/* Handled by pm_runtime in mmc. */
+		sqn_pr_info("%s: msmsdcc_enable_clocks \n", __func__);
 		msmsdcc_enable_clocks(msm_host);
+		sqn_pr_info("%s: msmsdcc_disable_clocks(msm_host, 5 * HZ)\n", __func__);
 		msmsdcc_disable_clocks(msm_host, 5 * HZ);
 	}
+#endif
+
+    msmsdcc_switch_clock(mmc_card->host, 1);
 
 	sqn_pr_leave();
 	return IRQ_HANDLED;
@@ -1725,7 +1630,7 @@ static irqreturn_t wimax_wakeup_gpio_irq_handler(int irq, void *dev_id)
 
 int sqn_sdio_notify_host_wakeup(void)
 {
-	struct sqn_sdio_card *card = g_priv->card;	
+	struct sqn_sdio_card *card = g_priv->card;
 	int rv = 0;
 
 	sqn_pr_enter();
@@ -1738,35 +1643,56 @@ int sqn_sdio_notify_host_wakeup(void)
 }
 EXPORT_SYMBOL(sqn_sdio_notify_host_wakeup);
 
-int sqn_sdio_get_sdc_clocks(void)
-{
-	struct sqn_sdio_card *card = g_priv->card;
-	struct msmsdcc_host *host = mmc_priv(card->func->card->host);
-
-	return msmsdcc_get_sdc_clocks(host);
-}
-EXPORT_SYMBOL(sqn_sdio_get_sdc_clocks);
-
-void sqn_sdio_set_sdc_clocks(int on)
-{
-	struct sqn_sdio_card *card = g_priv->card;
-	struct msmsdcc_host *host = mmc_priv(card->func->card->host);
-
-	sqn_pr_enter();
-	if (on) {
-		msmsdcc_enable_clocks(host);
-	} 
-	else {
-		msmsdcc_disable_clocks(host, 0);
-	}
-	sqn_pr_leave();
-}
-EXPORT_SYMBOL(sqn_sdio_set_sdc_clocks);
-
 int  init_thp_handler(struct net_device *dev);
 void cleanup_thp_handler(void);
 
+#ifdef CONFIG_WIMAX_SDIO_HIGH_SPEED
+int  mmc_sd_switch(struct mmc_card *card, int mode, int group, u8 value, u8 *resp);
+void mmc_set_timing(struct mmc_host *host, unsigned int timing);
+
+static int sqn_sdio_switch_hs(struct sqn_sdio_card *card)
+{
+       struct mmc_card *mmc_card = card->func->card;
+       int rv = 0;
+       u8 *status = 0;
+
+       sqn_pr_enter();
+
+       sqn_pr_info("switching SQN chip to High Speed mode\n");
+
+       status = kmalloc(64, GFP_KERNEL);
+       if (!status) {
+               sqn_pr_err("failed to allocate a buffer for CMD6 response\n");
+               rv = -ENOMEM;
+               goto out;
+       }
+
+       sdio_claim_host(card->func);
+
+       rv = mmc_sd_switch(mmc_card, 1, 0, 1, status);
+       if (rv) {
+               sqn_pr_err("mmc_sd_switch failed with error %d\n", rv);
+               goto free;
+       }
+
+       sqn_pr_info_dump("CMD6 resp: ", status, 64);
+
+       if ((status[16] & 0xF) != 1) {
+               sqn_pr_err("problem switching SDIO card into high-speed mode\n");
+       } else {
+               mmc_card_set_highspeed(mmc_card);
+               mmc_set_timing(mmc_card->host, MMC_TIMING_SD_HS);
+       }
+free:
+       sdio_release_host(card->func);
+       kfree(status);
+out:
+       sqn_pr_leave();
+       return rv;
+}
+
 extern struct sqn_sdio_card *_g_sqn_sdio_card;
+#endif
 
 static int sqn_sdio_probe(struct sdio_func *func,
 		const struct sdio_device_id *id)
@@ -1778,8 +1704,8 @@ static int sqn_sdio_probe(struct sdio_func *func,
 	int delay = 0;
 
 	int err;
-    u32 irq; 
-	u32 req_flags = IRQF_TRIGGER_RISING; 
+	u32 irq;
+	u32 req_flags = IRQF_TRIGGER_RISING;
 
 	sqn_pr_enter();
 
@@ -1819,7 +1745,7 @@ static int sqn_sdio_probe(struct sdio_func *func,
 	setup_timer(&sqn_card->wakelock_timer_host
 		, sqn_sdio_wake_lock_release_host_timer_fn
 		, (unsigned long) sqn_card);
-    setup_timer(&sqn_card->wakelock_timer_tx
+	setup_timer(&sqn_card->wakelock_timer_tx
 		, sqn_sdio_wake_lock_release_tx_timer_fn
 		, (unsigned long) sqn_card);
 	setup_timer(&sqn_card->wakelock_timer_rx
@@ -1827,6 +1753,17 @@ static int sqn_sdio_probe(struct sdio_func *func,
 		, (unsigned long) sqn_card);
 
 	sqn_card->func = func;
+
+    /* Prior the bootup sequnce to add_card to initilize the card->priv->drv_lock */
+    sdio_set_drvdata(func, sqn_card);
+	priv = sqn_add_card(sqn_card, &func->dev);
+	if (!priv) {
+		rv = -ENOMEM;
+		goto reclaim;
+	}
+	/* Prior end */
+
+	sqn_card->priv = priv;
 
 	/* Activate SDIO function and register interrupt handler */
 	sdio_claim_host(func);
@@ -1841,6 +1778,9 @@ static int sqn_sdio_probe(struct sdio_func *func,
 
 	sdio_release_host(func);
 
+    /*
+    // Prior the code as above. Andrew 0214
+
 	sdio_set_drvdata(func, sqn_card);
 	priv = sqn_add_card(sqn_card, &func->dev);
 	if (!priv) {
@@ -1849,6 +1789,7 @@ static int sqn_sdio_probe(struct sdio_func *func,
 	}
 
 	sqn_card->priv = priv;
+    */
 
 	INIT_WORK(&priv->rx_work_struct, sqn_sdio_process_rx_queue);
 	priv->card = sqn_card;
@@ -1857,8 +1798,7 @@ static int sqn_sdio_probe(struct sdio_func *func,
 	priv->is_tx_queue_empty = sqn_sdio_is_tx_queue_empty;
 
 	/* Load firmware if card needs it */
-	if (check_boot_from_host_mode(sqn_card->func))
-	{
+	if (check_boot_from_host_mode(sqn_card->func)) {
 		rv = sqn_load_firmware(sqn_card->func);
 		if (rv)
 			goto err_activate_card;
@@ -1896,25 +1836,25 @@ static int sqn_sdio_probe(struct sdio_func *func,
 	if (0 == sqn_card->rstn_wr_fifo_flag)
 		sqn_pr_warn("FW is still not started, anyway continue as is...\n");
 
-	
-    sqn_pr_info("setup GPIO%d for wakeup form SQN1210\n", mmc_wimax_get_hostwakeup_gpio()); 
-    rv = irq = mmc_wimax_get_hostwakeup_IRQ_ID(); //HOST WAKEUP GPIO as wakeup
+    /* regiseter HOST_WAKEUP irq */
+	sqn_pr_info("setup GPIO%d for wakeup form SQN1210\n", mmc_wimax_get_hostwakeup_gpio());
+	rv = irq = mmc_wimax_get_hostwakeup_IRQ_ID(); /* HOST WAKEUP GPIO as wakeup */
 
-    if (rv < 0) { 
-        sqn_pr_warn("wimax-gpio to irq failed\n"); 
-        goto disable; 
-    }
+	if (rv < 0) {
+		sqn_pr_warn("wimax-gpio to irq failed\n");
+		goto disable;
+	}
 	/*in shooter kernel1060 pmic driver would set every IRQ as nested function
 	,so we need to use request_any_context_irq to detect it and pass the check*/
-    rv = request_any_context_irq( irq, wimax_wakeup_gpio_irq_handler,
-                     req_flags, "WiMAX0", sqn_card->priv->dev); // IRQF_TRIGGER_RISING, raising trigger
-    if (rv < 0) {
-        sqn_pr_warn("wimax-gpio request_irq %d failed=%d\n", irq,rv);
-        goto disable;
-    }
-
-    sqn_pr_dbg("disable GPIO%d interrupt\n", mmc_wimax_get_hostwakeup_gpio());
-    disable_irq(mmc_wimax_get_hostwakeup_IRQ_ID());
+	/* IRQF_TRIGGER_RISING, raising trigger */
+	rv = request_any_context_irq(irq, wimax_wakeup_gpio_irq_handler,
+								  req_flags, "WiMAX0", sqn_card->priv->dev);
+	if (rv < 0) {
+		sqn_pr_warn("wimax-gpio request_irq %d failed=%d\n", irq, rv);
+		goto disable;
+	}
+	sqn_pr_dbg("disable GPIO%d interrupt\n", mmc_wimax_get_hostwakeup_gpio());
+	disable_irq(mmc_wimax_get_hostwakeup_IRQ_ID());
 
 	rv = init_thp(priv->dev);
 	if (rv)
@@ -1922,6 +1862,17 @@ static int sqn_sdio_probe(struct sdio_func *func,
 
 #ifdef DEBUG
 	/* sqn_sdio_debug_test(sqn_card->func); */
+#endif
+
+#ifdef CONFIG_WIMAX_SDIO_HIGH_SPEED
+	/* Switch card to high speed mode */
+	rv = sqn_sdio_switch_hs(sqn_card);
+#ifdef CONFIG_ARCH_MSM7X30
+	mmc_set_clock(func->card->host, 49152000);
+#else
+	mmc_set_clock(func->card->host, 48000000);
+#endif
+
 #endif
 
 out:
@@ -1951,15 +1902,12 @@ release:
 	sqn_sdio_free_rx_queue(sqn_card);
 
 	/* release a wake_lock if it was not done for a some reason */
-	if (wake_lock_active(&sqn_card->wakelock_host)) {		
-		wake_unlock(&sqn_card->wakelock_host); // Clean
-	}
-	if (wake_lock_active(&sqn_card->wakelock_tx)) {				
+	if (wake_lock_active(&sqn_card->wakelock_host))
+		wake_unlock(&sqn_card->wakelock_host);
+	if (wake_lock_active(&sqn_card->wakelock_tx))
 		wake_unlock(&sqn_card->wakelock_tx);
-	}
-	if (wake_lock_active(&sqn_card->wakelock_rx)) {				
+	if (wake_lock_active(&sqn_card->wakelock_rx))
 		wake_unlock(&sqn_card->wakelock_rx);
-	}
 
 	wake_lock_destroy(&sqn_card->wakelock_host);
 	wake_lock_destroy(&sqn_card->wakelock_tx);
@@ -1971,12 +1919,12 @@ free_card:
 	goto out;
 }
 
-
-extern wait_queue_head_t g_card_sleep_waitq;
-
 static void sqn_sdio_remove(struct sdio_func *func)
 {
 	struct sqn_sdio_card *sqn_card = sdio_get_drvdata(func);
+	struct sqn_sdio_card *card = g_priv->card;
+	struct msmsdcc_host *msm_host = mmc_priv(card->func->card->host);
+
 	u32 count = 0;
 	u32 delay = 0;
 	int rv = 0;
@@ -1984,7 +1932,7 @@ static void sqn_sdio_remove(struct sdio_func *func)
 	sqn_pr_enter();
 
 	sqn_pr_info("free GPIO%d interrupt\n", mmc_wimax_get_hostwakeup_gpio());
-	free_irq(mmc_wimax_get_hostwakeup_IRQ_ID(),sqn_card->priv->dev);
+	free_irq(mmc_wimax_get_hostwakeup_IRQ_ID(), sqn_card->priv->dev);
 
 #if defined(DEBUG)
 	sqn_sdio_print_debug_info(func);
@@ -2003,21 +1951,25 @@ static void sqn_sdio_remove(struct sdio_func *func)
 	sqn_sdio_it_disable(sqn_card->func);
 	sqn_pr_info("+sqn_sdio_it_disable\n");
 
-	/* 
+	/*
 	 * Shooter: If we disable sdio thread too late, there will be lots IRQ block system and device hang.
 	 * Sync the same flow as WIFI that "disable IRQ" -> "disable sdio thread" immediatelly.
 	 */
 	sdio_claim_host(func);
 	sqn_pr_info("+sdio_claim_host\n");
 
-	if(mmc_wimax_get_wimax_FW_freeze_WK_RX())
-	{
-		func->card->host->caps |= MMC_CAP_SDIO_IRQ;
-		sqn_pr_info("enable MMC_CAP_SDIO_IRQ - host->caps %lx\n",func->card->host->caps);
-	}
-
 	sdio_release_irq(func);
 	sqn_pr_info("+sdio_release_irq\n");
+
+	if (mmc_wimax_get_wimax_FW_freeze_WK_RX()) {
+
+		sqn_pr_info("[WiMAX] reset controller for disable RX completely !!\n");
+		msmsdcc_reset_and_restore(msm_host);
+
+		func->card->host->caps |= MMC_CAP_SDIO_IRQ;
+		sqn_pr_info("enable MMC_CAP_SDIO_IRQ - host->caps %lx\n", func->card->host->caps);
+	}
+
 	sdio_disable_func(func);
 	sqn_pr_info("+sdio_disable_func\n");
 	sdio_release_host(func);
@@ -2053,15 +2005,12 @@ static void sqn_sdio_remove(struct sdio_func *func)
 	del_timer_sync(&sqn_card->wakelock_timer_rx);
 
 	/* release a wake_lock if it was not done for a some reason */
-	if (wake_lock_active(&sqn_card->wakelock_host)) {
-		wake_unlock(&sqn_card->wakelock_host); // Remove
-	}
-	if (wake_lock_active(&sqn_card->wakelock_tx)) {		
+	if (wake_lock_active(&sqn_card->wakelock_host))
+		wake_unlock(&sqn_card->wakelock_host);
+	if (wake_lock_active(&sqn_card->wakelock_tx))
 		wake_unlock(&sqn_card->wakelock_tx);
-	}
-	if (wake_lock_active(&sqn_card->wakelock_rx)) {		
+	if (wake_lock_active(&sqn_card->wakelock_rx))
 		wake_unlock(&sqn_card->wakelock_rx);
-	}
 
 	wake_lock_destroy(&sqn_card->wakelock_host);
 	wake_lock_destroy(&sqn_card->wakelock_tx);
@@ -2085,11 +2034,11 @@ int sqn_sdio_suspend(struct sdio_func *func, pm_message_t msg)
 	sqn_pr_info("%s: enter\n", __func__);
 	sqn_pr_dbg("pm_message = %x\n", msg.event);
 
-    WARN(!skb_queue_empty(&sqn_card->tx_queue)
+	WARN(!skb_queue_empty(&sqn_card->tx_queue)
 		, "BANG!!! TX queue is not empty in suspend(): %d"
 		, skb_queue_len(&sqn_card->tx_queue));
 
-    WARN(!skb_queue_empty(&sqn_card->rx_queue)
+	WARN(!skb_queue_empty(&sqn_card->rx_queue)
 		, "BANG!!! RX queue is not empty in suspend(): %d"
 		, skb_queue_len(&sqn_card->rx_queue));
 
@@ -2132,8 +2081,7 @@ int sqn_sdio_resume(struct sdio_func *func)
 		netif_wake_queue(sqn_card->priv->dev);
 	}
 
-	// Dima: we don't need this, card will be woken up when there will be
-	// some TX data
+	/* Dima: we don't need this, card will be woken up when there will be some TX data*/
 	/* sqn_notify_host_wakeup(func); */
 
 	mmc_wimax_enable_host_wakeup(0);
@@ -2143,12 +2091,12 @@ int sqn_sdio_resume(struct sdio_func *func)
 	return rv;
 }
 
-int sqn_sdio_dump_net_pkt(int on) {
+int sqn_sdio_dump_net_pkt(int on)
+{
+	printk(KERN_INFO "[WIMAX] [SDIO] %s: dump_net_pkt: %d\n", __func__, on);
+	dump_net_pkt = on;
 
-    printk("[SDIO] %s: dump_net_pkt: %d\n", __func__, on);
-    dump_net_pkt = on;
-
-    return 0;
+	return 0;
 }
 
 static struct sdio_driver sqn_sdio_driver = {
@@ -2179,9 +2127,9 @@ static int __init sqn_sdio_init_module(void)
 
 	mmc_wimax_power(1);
 	mmc_wimax_set_carddetect(1);
-    // thp_wimax_uart_switch(1);
+	/* thp_wimax_uart_switch(1); */
 	mmc_wimax_set_status(1);
-    dump_net_pkt = mmc_wimax_get_netlog_status();
+	dump_net_pkt = mmc_wimax_get_netlog_status();
 
 	rc = sdio_register_driver(&sqn_sdio_driver);
 
@@ -2205,11 +2153,11 @@ static void __exit sqn_sdio_exit_module(void)
 	sdio_unregister_driver(&sqn_sdio_driver);
 	unregister_android_earlysuspend();
 
-    mmc_wimax_set_carddetect(0);
+	mmc_wimax_set_carddetect(0);
 	mmc_wimax_power(0);
-	// thp_wimax_uart_switch(0);
+	/* thp_wimax_uart_switch(0); */
 	mmc_wimax_set_status(0);
-	
+
 	sqn_dfs_cleanup();
 
 #if RESET_BY_WIMAXTRACKER

@@ -130,6 +130,44 @@ static int digits_len(const struct nf_conn *ct, const char *dptr,
 	return len;
 }
 
+static int iswordc(const char c)
+{
+	if (isalnum(c) || c == '!' || c == '"' || c == '%' ||
+	    (c >= '(' && c <= '/') || c == ':' || c == '<' || c == '>' ||
+	    c == '?' || (c >= '[' && c <= ']') || c == '_' || c == '`' ||
+	    c == '{' || c == '}' || c == '~')
+		return 1;
+	return 0;
+}
+
+static int word_len(const char *dptr, const char *limit)
+{
+	int len = 0;
+	while (dptr < limit && iswordc(*dptr)) {
+		dptr++;
+		len++;
+	}
+	return len;
+}
+
+static int callid_len(const struct nf_conn *ct, const char *dptr,
+		      const char *limit, int *shift)
+{
+	int len, domain_len;
+
+	len = word_len(dptr, limit);
+	dptr += len;
+	if (!len || dptr == limit || *dptr != '@')
+		return len;
+	dptr++;
+	len++;
+
+	domain_len = word_len(dptr, limit);
+	if (!domain_len)
+		return 0;
+	return len + domain_len;
+}
+
 /* get media type + port length */
 static int media_len(const struct nf_conn *ct, const char *dptr,
 		     const char *limit, int *shift)
@@ -151,6 +189,9 @@ static int parse_addr(const struct nf_conn *ct, const char *cp,
 {
 	const char *end;
 	int ret = 0;
+
+	if (!ct)
+		return 0;
 
 	memset(addr, 0, sizeof(*addr));
 	switch (nf_ct_l3num(ct)) {
@@ -296,6 +337,7 @@ static const struct sip_header ct_sip_hdrs[] = {
 	[SIP_HDR_VIA_TCP]		= SIP_HDR("Via", "v", "TCP ", epaddr_len),
 	[SIP_HDR_EXPIRES]		= SIP_HDR("Expires", NULL, NULL, digits_len),
 	[SIP_HDR_CONTENT_LENGTH]	= SIP_HDR("Content-Length", "l", NULL, digits_len),
+	[SIP_HDR_CALL_ID]		= SIP_HDR("Call-Id", "i", NULL, callid_len),
 };
 
 static const char *sip_follow_continuation(const char *dptr, const char *limit)
@@ -665,7 +707,7 @@ static const char *ct_sdp_header_search(const char *dptr, const char *limit,
 }
 
 /* Locate a SDP header (optionally a substring within the header value),
- * optionally stopping at the first occurence of the term header, parse
+ * optionally stopping at the first occurrence of the term header, parse
  * it and return the offset and length of the data we're interested in.
  */
 int ct_sip_get_sdp_header(const struct nf_conn *ct, const char *dptr,
@@ -749,6 +791,11 @@ static int refresh_signalling_expectation(struct nf_conn *ct,
 	struct hlist_node *n, *next;
 	int found = 0;
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
+
 	spin_lock_bh(&nf_conntrack_lock);
 	hlist_for_each_entry_safe(exp, n, next, &help->expectations, lnode) {
 		if (exp->class != SIP_EXPECT_SIGNALLING ||
@@ -773,6 +820,11 @@ static void flush_expectations(struct nf_conn *ct, bool media)
 	struct nf_conn_help *help = nfct_help(ct);
 	struct nf_conntrack_expect *exp;
 	struct hlist_node *n, *next;
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
 
 	spin_lock_bh(&nf_conntrack_lock);
 	hlist_for_each_entry_safe(exp, n, next, &help->expectations, lnode) {
@@ -1035,6 +1087,11 @@ static int process_invite_response(struct sk_buff *skb, unsigned int dataoff,
 	struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
 	struct nf_conn_help *help = nfct_help(ct);
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
+
 	if ((code >= 100 && code <= 199) ||
 	    (code >= 200 && code <= 299))
 		return process_sdp(skb, dataoff, dptr, datalen, cseq);
@@ -1051,6 +1108,11 @@ static int process_update_response(struct sk_buff *skb, unsigned int dataoff,
 	struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
 	struct nf_conn_help *help = nfct_help(ct);
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
+
 	if ((code >= 100 && code <= 199) ||
 	    (code >= 200 && code <= 299))
 		return process_sdp(skb, dataoff, dptr, datalen, cseq);
@@ -1066,6 +1128,11 @@ static int process_prack_response(struct sk_buff *skb, unsigned int dataoff,
 	enum ip_conntrack_info ctinfo;
 	struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
 	struct nf_conn_help *help = nfct_help(ct);
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
 
 	if ((code >= 100 && code <= 199) ||
 	    (code >= 200 && code <= 299))
@@ -1126,6 +1193,11 @@ static int process_register_request(struct sk_buff *skb, unsigned int dataoff,
 	/* Expected connections can not register again. */
 	if (ct->status & IPS_EXPECTED)
 		return NF_ACCEPT;
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
 
 	/* We must check the expiration time: a value of zero signals the
 	 * registrar to release the binding. We'll remove our expectation
@@ -1211,6 +1283,11 @@ static int process_register_response(struct sk_buff *skb, unsigned int dataoff,
 	unsigned int matchoff, matchlen, coff = 0;
 	unsigned int expires = 0;
 	int in_contact = 0, ret;
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(help) || (!help))
+		printk(KERN_ERR "[NET] help is NULL in %s!\n", __func__);
+#endif
 
 	/* According to RFC 3261, "UAs MUST NOT send a new registration until
 	 * they have received a final response from the registrar for the
@@ -1376,11 +1453,12 @@ static int sip_help_tcp(struct sk_buff *skb, unsigned int protoff,
 	unsigned int msglen, origlen;
 	const char *dptr, *end;
 	s16 diff, tdiff = 0;
-	int ret;
+	int ret = NF_ACCEPT;
+	bool term;
 	typeof(nf_nat_sip_seq_adjust_hook) nf_nat_sip_seq_adjust;
 
 	if (ctinfo != IP_CT_ESTABLISHED &&
-	    ctinfo != IP_CT_ESTABLISHED + IP_CT_IS_REPLY)
+	    ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
 
 	/* No Data ? */
@@ -1411,14 +1489,21 @@ static int sip_help_tcp(struct sk_buff *skb, unsigned int protoff,
 		if (dptr + matchoff == end)
 			break;
 
-		if (end + strlen("\r\n\r\n") > dptr + datalen)
-			break;
-		if (end[0] != '\r' || end[1] != '\n' ||
-		    end[2] != '\r' || end[3] != '\n')
+		term = false;
+		for (; end + strlen("\r\n\r\n") <= dptr + datalen; end++) {
+			if (end[0] == '\r' && end[1] == '\n' &&
+			    end[2] == '\r' && end[3] == '\n') {
+				term = true;
+				break;
+			}
+		}
+		if (!term)
 			break;
 		end += strlen("\r\n\r\n") + clen;
 
 		msglen = origlen = end - dptr;
+		if (msglen > datalen)
+			return NF_DROP;
 
 		ret = process_sip_msg(skb, ct, dataoff, &dptr, &msglen);
 		if (ret != NF_ACCEPT)

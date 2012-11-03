@@ -16,8 +16,8 @@
 
 #include <mach/board.h>
 
-#define KINGDOM_GPIO_UART2_RX	51
-#define KINGDOM_GPIO_UART2_TX	52
+#define KINGDOM_GPIO_UART2_RX 	51
+#define KINGDOM_GPIO_UART2_TX 	52
 
 /* Macros assume PMIC GPIOs start at 0 */
 #define PM8058_GPIO_PM_TO_SYS(pm_gpio)     (pm_gpio + NR_GPIO_IRQS)
@@ -26,43 +26,28 @@
 #define MSM_LINUX_BASE1		0x05000000
 #define MSM_LINUX_SIZE1		0x0B000000
 #define MSM_LINUX_BASE2		0x20000000
-#define MSM_LINUX_SIZE2		0x09100000
+#define MSM_LINUX_SIZE2		0x0A500000		/*145MB -> 143MB -> 117MB -> 151MB*/
 #define MSM_MEM_256MB_OFFSET	0x10000000
+
+#define MSM_GPU_MEM_BASE	0x00100000
+#define MSM_GPU_MEM_SIZE	0x00000000
+
+#define MSM_PMEM_ADSP2_BASE	0x00100000
+#define MSM_PMEM_ADSP2_SIZE	0x00300000
 
 #define MSM_RAM_CONSOLE_BASE	0x00500000
 #define MSM_RAM_CONSOLE_SIZE	0x000F0000
 
-#define MSM_GPU_MEM_BASE	0x29100000
-#define MSM_GPU_MEM_SIZE	0x00400000
+#define MSM_PMEM_ADSP_BASE  	0x2A500000
+#define MSM_PMEM_ADSP_SIZE	0x03A00000  /* 32MB -> 58MB */
+#define PMEM_KERNEL_EBI1_BASE   0x2DF00000
+#define PMEM_KERNEL_EBI1_SIZE   0x00900000		/*7MB -> 9MB*/
 
-#define MSM_PMEM_ADSP_BASE  	0x29500000
-#define MSM_PMEM_ADSP_SIZE	0x02000000
-#define PMEM_KERNEL_EBI1_BASE   0x2B500000
-#define PMEM_KERNEL_EBI1_SIZE   0x00700000
+#define MSM_PMEM_SF_BASE	0x2E800000
+#define MSM_PMEM_SF_SIZE	0x01000000
 
-#define MSM_PMEM_CAMERA_BASE	0x2BC00000
-#define MSM_PMEM_CAMERA_SIZE	0x00000000
-
-#define MSM_PMEM_MDP_BASE	0x2BC00000
-#define MSM_PMEM_MDP_SIZE	0x04000000
-
-#define MSM_FB_BASE		0x2FC00000
-#define MSM_FB_SIZE		0x00400000
-
-/* CIQ */
-#ifdef CONFIG_BUILD_CIQ
-#define MSM_PMEM_CIQ_BASE   MSM_RAM_CONSOLE_BASE + MSM_RAM_CONSOLE_SIZE
-#define MSM_PMEM_CIQ_SIZE   SZ_64K
-#define MSM_PMEM_CIQ1_BASE  MSM_PMEM_CIQ_BASE
-#define MSM_PMEM_CIQ1_SIZE  MSM_PMEM_CIQ_SIZE
-#define MSM_PMEM_CIQ2_BASE  MSM_PMEM_CIQ_BASE
-#define MSM_PMEM_CIQ2_SIZE  MSM_PMEM_CIQ_SIZE
-#define MSM_PMEM_CIQ3_BASE  MSM_PMEM_CIQ_BASE
-#define MSM_PMEM_CIQ3_SIZE  MSM_PMEM_CIQ_SIZE
-#endif
-
-#define KINGDOM_GPIO_WIFI_IRQ		(147)
-#define KINGDOM_GPIO_WIFI_SHUTDOWN_N	(36)
+#define MSM_FB_BASE		0x2F800000
+#define MSM_FB_SIZE		0x00800000
 
 #define KINGDOM_GPIO_KEYPAD_POWER_KEY	(46)
 
@@ -85,6 +70,9 @@
 #define KINGDOM_LCD_RSTz		(126)
 #define KINGDOM_LCD_ID1			(128)
 #define KINGDOM_LCD_ID0			(129)
+/* Wifi */
+#define KINGDOM_GPIO_WIFI_IRQ       (147)
+#define KINGDOM_GPIO_WIFI_SHUTDOWN_N    (36)
 /* BT */
 #define KINGDOM_GPIO_BT_UART1_RTS	(134)
 #define KINGDOM_GPIO_BT_UART1_CTS	(135)
@@ -140,7 +128,8 @@
 
 /* PMIC GPIO */
 #define PMGPIO(x) (x-1)
-#define KINGDOM_GPIO_TP_INT_N	PMGPIO(1)
+#define KINGDOM_GPIO_TP_INT_N		PMGPIO(1)
+#define KINGDOM_GPIO_TP_INT_N_CPU	PMGPIO(2)
 #define KINGDOM_VOL_UP			PMGPIO(3)
 #define KINGDOM_VOL_DN			PMGPIO(4)
 #define KINGDOM_AUD_REMO_PRES		PMGPIO(6)
@@ -166,10 +155,15 @@
 #define KINGDOM_GPIO_COMPASS_INT	PMGPIO(37)
 #define KINGDOM_WIFI_BT_SLEEP_CLK_EN	PMGPIO(38)
 
+/*display*/
+extern struct platform_device msm_device_mdp;
+extern struct platform_device msm_device_mddi0;
+extern int panel_type;
 
-int __init kingdom_init_mmc(unsigned int sys_rev);
+int kingdom_init_mmc(unsigned int sys_rev);
 void __init kingdom_audio_init(void);
-int __init kingdom_init_keypad(void);
+int kingdom_init_keypad(void);
 int __init kingdom_wifi_init(void);
-int __init kingdom_init_panel(unsigned int sys_rev);
+
+/*int __init kingdom_init_panel(unsigned int sys_rev);*/
 #endif /* __ARCH_ARM_MACH_MSM_BOARD_KINGDOM_H */

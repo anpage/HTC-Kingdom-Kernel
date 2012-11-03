@@ -1,29 +1,13 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 #ifndef _VCD_DDL_CORE_H_
@@ -38,10 +22,12 @@
 #define DDL_TILE_BUFFER_ALIGN_BYTES  8192
 
 #define DDL_MAX_FRAME_WIDTH   (1280)
-#define DDL_MAX_FRAME_HEIGHT  (1280)
+#define DDL_MAX_FRAME_HEIGHT  (720)
 
 #define DDL_MAX_DP_FRAME_WIDTH  352
 #define DDL_MAX_DP_FRAME_HEIGHT 288
+
+#define DDL_MAX_BIT_RATE (14*1000*1000)
 
 #define DDL_SW_RESET_SLEEP 10
 
@@ -70,7 +56,7 @@
 #define DDL_MPEG_REFBUF_COUNT  2
 
 #define DDL_MPEG_COMV_BUF_NO 2
-#define DDL_H263_COMV_BUF_NO 0
+#define DDL_H263_COMV_BUF_NO 2
 #define DDL_COMV_BUFLINE_NO  128
 #define DDL_VC1_COMV_BUFLINE_NO  32
 #define DDL_MINIMUM_BYTE_PER_SLICE  1920
@@ -82,21 +68,27 @@
  (addr) = (u32)((((u32)(addr) + DDL_STREAMBUF_ALIGN_GUARD_BYTES) & \
 			 ~(DDL_STREAMBUF_ALIGN_GUARD_BYTES)) + DDL_BUFEND_PAD)
 
+#define DDL_QCIF_MBS 99
+#define DDL_CIF_MBS  396
+#define DDL_QVGA_MBS 300
+#define DDL_VGA_MBS  1200
+#define DDL_WVGA_MBS 1500
+#define DDL_720P_MBS 3600
+
 #define DDL_FRAMESIZE_DIV_FACTOR   (0xF)
-#define DDL_ALLOW_ENC_FRAMESIZE(width, height)             \
-(\
-   (\
-      ((width) <= DDL_MAX_FRAME_WIDTH)  &&                 \
-      ((height) <= DDL_MAX_FRAME_HEIGHT)                   \
-   ) &&                                                     \
-   (\
-      ((width) >= 32 && (height) >= 32)                      \
-   ) &&                                                     \
-   (\
-      !((width) & DDL_FRAMESIZE_DIV_FACTOR) &&              \
-      !((height) & DDL_FRAMESIZE_DIV_FACTOR)                \
-   )                                                        \
-)
+
+#define DDL_NO_OF_MB(width, height) \
+	(((width + 15) >> 4) * ((height + 15) >> 4))
+
+#define DDL_ALLOW_ENC_FRAMESIZE(width, height) \
+((DDL_NO_OF_MB(width, height) <= DDL_720P_MBS) \
+ && (((width) <= DDL_MAX_FRAME_WIDTH) &&            \
+     ((height) <= DDL_MAX_FRAME_WIDTH))            \
+ && ((width) >= 32 && (height) >= 32))
+
+#define DDL_VALIDATE_ENC_FRAMESIZE(width, height) \
+	(!((width) & DDL_FRAMESIZE_DIV_FACTOR) &&     \
+     !((height) & DDL_FRAMESIZE_DIV_FACTOR))
 
 #define DDL_TILE_ALIGN_WIDTH     128
 #define DDL_TILE_ALIGN_HEIGHT    32

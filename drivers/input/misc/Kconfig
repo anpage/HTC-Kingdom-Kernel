@@ -22,6 +22,16 @@ config INPUT_88PM860X_ONKEY
 	  To compile this driver as a module, choose M here: the module
 	  will be called 88pm860x_onkey.
 
+config INPUT_AB8500_PONKEY
+	tristate "AB8500 Pon (PowerOn) Key"
+	depends on AB8500_CORE
+	help
+	  Say Y here to use the PowerOn Key for ST-Ericsson's AB8500
+	  Mix-Sig PMIC.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called ab8500-ponkey.
+
 config INPUT_AD714X
 	tristate "Analog Devices AD714x Capacitance Touch Sensor"
 	help
@@ -268,13 +278,24 @@ config INPUT_TWL4030_PWRBUTTON
 config INPUT_TWL4030_VIBRA
 	tristate "Support for TWL4030 Vibrator"
 	depends on TWL4030_CORE
-	select TWL4030_CODEC
+	select MFD_TWL4030_AUDIO
 	select INPUT_FF_MEMLESS
 	help
 	  This option enables support for TWL4030 Vibrator Driver.
 
 	  To compile this driver as a module, choose M here. The module will
 	  be called twl4030_vibra.
+
+config INPUT_TWL6040_VIBRA
+	tristate "Support for TWL6040 Vibrator"
+	depends on TWL4030_CORE
+	select TWL6040_CORE
+	select INPUT_FF_MEMLESS
+	help
+	  This option enables support for TWL6040 Vibrator Driver.
+
+	  To compile this driver as a module, choose M here. The module will
+	  be called twl6040_vibra.
 
 config INPUT_UINPUT
 	tristate "User level driver support"
@@ -295,34 +316,22 @@ config INPUT_SGI_BTNS
 	  To compile this driver as a module, choose M here: the
 	  module will be called sgi_btns.
 
-config INPUT_WINBOND_CIR
-	tristate "Winbond IR remote control"
-	depends on X86 && PNP
-	select NEW_LEDS
-	select LEDS_CLASS
-	select LEDS_TRIGGERS
-	select BITREVERSE
-	help
-	  Say Y here if you want to use the IR remote functionality found
-	  in some Winbond SuperI/O chips. Currently only the WPCD376I
-	  chip is supported (included in some Intel Media series motherboards).
-
-	  IR Receive and wake-on-IR from suspend and power-off is currently
-	  supported.
-
-	  To compile this driver as a module, choose M here: the module will be
-	  called winbond_cir.
-
 config INPUT_GPIO
 	tristate "GPIO driver support"
 	help
 	  Say Y here if you want to support gpio based keys, wheels etc...
 
-config INPUT_MICROP
-	tristate "MicroP key driver support"
-	depends on MICROP_COMMON
+config INPUT_ISA1200_FF_MEMLESS
+	tristate "ISA1200 haptic ff-memless support"
+	depends on I2C
+	select INPUT_FF_MEMLESS
 	help
-	  Say Y here if you want to support uP based keys.
+	  ISA1200 is a high performance enhanced haptic chip.
+	  Say Y here if you want to support ISA1200 connected via I2C,
+	  and select N if you are unsure.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called isa1200-ff-memless.
 
 config HP_SDC_RTC
 	tristate "HP SDC Real Time Clock"
@@ -348,6 +357,28 @@ config INPUT_PCF8574
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called pcf8574_keypad.
+
+config INPUT_PWM_BEEPER
+	tristate "PWM beeper support"
+	depends on HAVE_PWM
+	help
+	  Say Y here to get support for PWM based beeper devices.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called pwm-beeper.
+
+config INPUT_PMIC8XXX_PWRKEY
+	tristate "PMIC8XXX power key support"
+	depends on MFD_PM8XXX
+	help
+	  Say Y here if you want support for the PMIC8XXX power key.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called pmic8xxx-pwrkey.
 
 config INPUT_GPIO_ROTARY_ENCODER
 	tristate "Rotary encoders connected to GPIO pins"
@@ -412,34 +443,79 @@ config INPUT_PCAP
 	  To compile this driver as a module, choose M here: the
 	  module will be called pcap_keys.
 
-config LIGHTSENSOR_MICROP
-        tristate "LIGHTSENSOR MICROP Driver"
-        depends on MICROP_COMMON
-        help
-          HTC LIGHTSENSOR Microp support.
-
-config INPUT_CAPELLA_CM3602
-	tristate "Capella CM3602 proximity and light sensor"
+config INPUT_ADXL34X
+	tristate "Analog Devices ADXL34x Three-Axis Digital Accelerometer"
+	default n
 	help
-	  Say Y here to enable the Capella CM3602 Short Distance Proximity
-	  Sensor with Ambient Light Sensor.
+	  Say Y here if you have a Accelerometer interface using the
+	  ADXL345/6 controller, and your board-specific initialization
+	  code includes that in its table of devices.
 
-config LIGHTSENSOR_SMD
-        tristate "LIGHTSENSOR SMD Driver"
-        help
-          HTC LIGHTSENSOR SMD support.
+	  This driver can use either I2C or SPI communication to the
+	  ADXL345/6 controller.  Select the appropriate method for
+	  your system.
 
-config INPUT_DUMMY_KEYPAD
-	tristate "Dummy Keypad driver support"
+	  If unsure, say N (but it's safe to say "Y").
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called adxl34x.
+
+config INPUT_ADXL34X_I2C
+	tristate "support I2C bus connection"
+	depends on INPUT_ADXL34X && I2C
+	default y
 	help
-	  Say Y here if you want to support dummy keypad driver, wheels etc...
+	  Say Y here if you have ADXL345/6 hooked to an I2C bus.
 
-config LIGHTSENSOR_PMIC
-        tristate "LIGHTSENSOR PMIC Driver"
-        help
-          HTC LIGHTSENSOR PMIC support.
+	  To compile this driver as a module, choose M here: the
+	  module will be called adxl34x-i2c.
 
-endif
+config INPUT_ADXL34X_SPI
+	tristate "support SPI bus connection"
+	depends on INPUT_ADXL34X && SPI
+	default y
+	help
+	  Say Y here if you have ADXL345/6 hooked to a SPI bus.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called adxl34x-spi.
+
+config INPUT_CMA3000
+	tristate "VTI CMA3000 Tri-axis accelerometer"
+	help
+	  Say Y here if you want to use VTI CMA3000_D0x Accelerometer
+	  driver
+
+	  This driver currently only supports I2C interface to the
+	  controller. Also select the I2C method.
+
+	  If unsure, say N
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cma3000_d0x.
+
+config INPUT_CMA3000_I2C
+	tristate "Support I2C bus connection"
+	depends on INPUT_CMA3000 && I2C
+	help
+	  Say Y here if you want to use VTI CMA3000_D0x Accelerometer
+	  through I2C interface.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cma3000_d0x_i2c.
+
+config INPUT_XEN_KBDDEV_FRONTEND
+	tristate "Xen virtual keyboard and mouse support"
+	depends on XEN_FBDEV_FRONTEND
+	default y
+	select XEN_XENBUS_FRONTEND
+	help
+	  This driver implements the front-end of the Xen virtual
+	  keyboard and mouse device driver.  It communicates with a back-end
+	  in another domain.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called xen-kbdfront.
 
 config PMIC8058_PWRKEY
         tristate "PMIC8058 power key support"
@@ -460,3 +536,34 @@ config PMIC8058_OTHC
 
           To compile this driver as a module, choose M here: the
           module will be called pmic8058-othc.
+
+config INPUT_PMIC8058_VIBRA_MEMLESS
+	tristate "Qualcomm PM8058 vibrator support (ff-memless)"
+	depends on PMIC8058 && INPUT_FF_MEMLESS
+	default n
+	help
+	  This option enables device driver support for the vibrator
+	  on Qualcomm PM8058 chip. This driver supports ff-memless interface
+	  from input framework.
+
+	  To compile this driver as module, choose M here: the
+	  module will be called pmic8058-vib-memless.
+
+config BOSCH_BMA150
+        tristate "SMB380/BMA150 acceleration sensor support"
+        depends on I2C=y
+        help
+          If you say yes here you get support for Bosch Sensortec's
+          acceleration sensors SMB380/BMA150.
+
+config INPUT_DUMMY_KEYPAD
+       tristate "Dummy Keypad driver support"
+       help
+         Say Y here if you want to support dummy keypad driver, wheels etc...
+
+config POWER_KEY_LED
+	tristate "Power key LED"
+	help
+	  Say Y here if you want to support power key LED.
+
+endif

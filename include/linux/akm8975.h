@@ -65,6 +65,7 @@ Defines a value to be set in the Control Registers (\c CNTL) of AK8975. */
 #define ECS_IOCTL_GET_DELAY          _IOR(AKMIO, 0x30, short)
 #define ECS_IOCTL_GET_MATRIX         _IOR(AKMIO, 0x0E, short [4][3][3])
 #define ECS_IOCTL_GET_DATA_FOR_GYRO    _IOR(AKMIO, 0x31, short[12])
+#define ECS_IOCTL_GET_COMP_FLAG        _IOR(AKMIO, 0x32, int)
 
 /* IOCTLs for APPs */
 #define ECS_IOCTL_APP_SET_MODE         _IOW(AKMIO, 0x10, short)
@@ -88,9 +89,10 @@ struct akm8975_platform_data {
 	short layouts[4][3][3];
 	short irq_trigger;
 	int use_pana_gyro;
+	int intr_pin;
 };
 
-void akm_get_akmd_data(short* getdata );
-
+void akm_get_akmd_data(short *getdata);
+int  akm_get_akmd_ready(void);
 #endif
 

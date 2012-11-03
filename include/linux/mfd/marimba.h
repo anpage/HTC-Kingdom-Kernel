@@ -1,29 +1,13 @@
-/* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 /*
@@ -65,7 +49,18 @@ enum chip_id {
 	CHIP_ID_MAX
 };
 
-struct marimba{
+enum bahama_version {
+	BAHAMA_VER_1_0,
+	BAHAMA_VER_2_0,
+	BAHAMA_VER_UNSUPPORTED = 0xFF
+};
+enum {
+	BT_PCM_ON,
+	BT_PCM_OFF,
+	FM_I2S_ON,
+	FM_I2S_OFF,
+};
+struct marimba {
 	struct i2c_client *client;
 
 	struct i2c_msg xfer_msg[2];
@@ -75,19 +70,26 @@ struct marimba{
 	int mod_id;
 };
 
-struct marimba_top_level_platform_data{
+struct marimba_top_level_platform_data {
 	int slave_id;     /* Member added for eg. */
 };
 
-struct marimba_fm_platform_data{
+struct marimba_fm_platform_data {
 	int irq;
 	int (*fm_setup)(struct marimba_fm_platform_data *pdata);
 	void (*fm_shutdown)(struct marimba_fm_platform_data *pdata);
 	struct vreg *vreg_s2;
 	struct vreg *vreg_xo_out;
+	/*
+	This is to indicate whether Fm SoC is I2S master/slave
+		false	- FM SoC is I2S slave
+		true	- FM SoC is I2S master
+	*/
+	bool is_fm_soc_i2s_master;
+	int (*config_i2s_gpio)(int mode);
 };
 
-struct marimba_codec_platform_data{
+struct marimba_codec_platform_data {
 	int (*marimba_codec_power)(int vreg_on);
 	void (*snddev_profile_init) (void);
 };
@@ -147,7 +149,9 @@ struct marimba_platform_data {
 	void (*marimba_shutdown) (void);
 	u32 (*bahama_setup) (void);
 	u32 (*bahama_shutdown) (int);
+	u32 (*marimba_gpio_config) (int);
 	u32 (*bahama_core_config) (int type);
+	u32 tsadc_ssbi_adap;
 };
 
 /*
@@ -178,5 +182,10 @@ int timpani_write(struct marimba*, u8 reg, u8 *value,
 /* Get the detected codec type */
 int adie_get_detected_codec_type(void);
 int adie_get_detected_connectivity_type(void);
-
+int marimba_gpio_config(int gpio_value);
+bool marimba_get_fm_status(struct marimba *);
+bool marimba_get_bt_status(struct marimba *);
+void marimba_set_fm_status(struct marimba *, bool);
+void marimba_set_bt_status(struct marimba *, bool);
+int marimba_read_bahama_ver(struct marimba *);
 #endif

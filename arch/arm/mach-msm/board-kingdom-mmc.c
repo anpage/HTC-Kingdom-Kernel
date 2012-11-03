@@ -36,11 +36,67 @@
 #include "proc_comm.h"
 #include "board-common-wimax.h"
 
+#include "pm.h"
+
 #define KINGDOM_SDMC_CD_N_TO_SYS PM8058_GPIO_PM_TO_SYS(KINGDOM_GPIO_SDMC_CD_N)
-extern int msm_add_sdcc(unsigned int controller, struct mmc_platform_data *plat,
-			unsigned int stat_irq, unsigned long stat_irq_flags);
+
+#define PM_QOS 1
+
+/* PM QoS */
+#if PM_QOS
+static struct msm_pm_platform_data msm_pm_data[MSM_PM_SLEEP_MODE_NR] = {
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE] = {
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 1,
+		.suspend_enabled = 1,
+		.latency = 8594,
+		.residency = 23740,
+	},
+	[MSM_PM_SLEEP_MODE_APPS_SLEEP] = {
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 1,
+		.suspend_enabled = 1,
+		.latency = 8594,
+		.residency = 23740,
+	},
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE] = {
+#ifdef CONFIG_MSM_STANDALONE_POWER_COLLAPSE
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 1,
+		.suspend_enabled = 0,
+#else
+		.idle_supported = 0,
+		.suspend_supported = 0,
+		.idle_enabled = 0,
+		.suspend_enabled = 0,
+#endif
+		.latency = 500,
+		.residency = 6000,
+	},
+	[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT] = {
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 0,
+		.suspend_enabled = 1,
+		.latency = 443,
+		.residency = 1098,
+	},
+	[MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT] = {
+		.idle_supported = 1,
+		.suspend_supported = 1,
+		.idle_enabled = 1,
+		.suspend_enabled = 1,
+		.latency = 2,
+		.residency = 0,
+	},
+};
+#endif
 
 /* ---- SDCARD ---- */
+#if 0
 static uint32_t sdcard_on_gpio_table[] = {
 	PCOM_GPIO_CFG(58, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_16MA), /* CLK */
 	PCOM_GPIO_CFG(59, 1, GPIO_INPUT, GPIO_NO_PULL, GPIO_8MA), /* CMD */
@@ -60,6 +116,7 @@ static uint32_t sdcard_off_gpio_table[] = {
 };
 
 static uint opt_disable_sdcard;
+#endif
 
 static uint32_t movinand_on_gpio_table[] = {
 	PCOM_GPIO_CFG(64, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), /* CLK */
@@ -73,6 +130,20 @@ static uint32_t movinand_on_gpio_table[] = {
 	PCOM_GPIO_CFG(113, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), /* DAT6 */
 	PCOM_GPIO_CFG(112, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), /* DAT7 */
 };
+
+static void config_gpio_table(uint32_t *table, int len)
+{
+	int n, rc;
+	for (n = 0; n < len; n++) {
+		rc = gpio_tlmm_config(table[n], GPIO_CFG_ENABLE);
+		if (rc) {
+			pr_err("%s: gpio_tlmm_config(%#x)=%d\n", __func__, table[n], rc);
+			break;
+		}
+	}
+}
+
+#if 0
 static int __init kingdom_disablesdcard_setup(char *str)
 {
 	int cal = simple_strtol(str, NULL, 0);
@@ -168,6 +239,7 @@ static struct mmc_platform_data kingdom_movinand_data = {
 	.slot_type	= &kingdom_emmcslot_type,
 	.mmc_bus_width  = MMC_CAP_8_BIT_DATA,
 };
+#endif
 
 /* ---- WIFI ---- */
 
@@ -226,11 +298,20 @@ static unsigned int kingdom_wifi_status(struct device *dev)
 	return kingdom_wifi_cd;
 }
 
+static unsigned int kingdom_wifislot_type = MMC_TYPE_SDIO_WIFI;
 static struct mmc_platform_data kingdom_wifi_data = {
 	.ocr_mask		= MMC_VDD_28_29,
 	.status			= kingdom_wifi_status,
 	.register_status_notify	= kingdom_wifi_status_register,
 	.embedded_sdio		= &kingdom_wifi_emb_data,
+	.slot_type	= &kingdom_wifislot_type,
+	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+	.msmsdcc_fmin   = 144000,
+	.msmsdcc_fmid   = 24576000,
+	.msmsdcc_fmax   = 49152000,
+	.nonremovable   = 0,
+	/* HTC_WIFI_MOD, temp remove dummy52
+	.dummy52_required = 1, */
 };
 
 int kingdom_wifi_set_carddetect(int val)
@@ -245,6 +326,7 @@ int kingdom_wifi_set_carddetect(int val)
 }
 EXPORT_SYMBOL(kingdom_wifi_set_carddetect);
 
+#if 0
 static struct pm8058_gpio pmic_gpio_sleep_clk_output = {
 	.direction      = PM_GPIO_DIR_OUT,
 	.output_buffer  = PM_GPIO_OUT_BUF_CMOS,
@@ -322,6 +404,7 @@ int kingdom_wifi_bt_sleep_clk_ctl(int on, int id)
 	return 0;
 }
 EXPORT_SYMBOL(kingdom_wifi_bt_sleep_clk_ctl);
+#endif
 
 int kingdom_wifi_power(int on)
 {
@@ -335,7 +418,7 @@ int kingdom_wifi_power(int on)
 			ARRAY_SIZE(wifi_off_gpio_table));
 	}
 
-	kingdom_wifi_bt_sleep_clk_ctl(on, ID_WIFI);
+	/* kingdom_wifi_bt_sleep_clk_ctl(on, ID_WIFI); */
 	gpio_set_value(KINGDOM_GPIO_WIFI_SHUTDOWN_N, on); /* WIFI_SHUTDOWN */
 	mdelay(120);
 	return 0;
@@ -349,7 +432,7 @@ int kingdom_wifi_reset(int on)
 }
 
 
-// /* ---------------- WiMAX GPIO Settings --------------- */
+/* ---------------- WiMAX GPIO Settings --------------- */
 static uint32_t wimax_on_gpio_table[] = {
 	PCOM_GPIO_CFG(KINGDOM_GPIO_WIMAX_SDIO_D0, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), /* DAT0 */
 	PCOM_GPIO_CFG(KINGDOM_GPIO_WIMAX_SDIO_D1, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), /* DAT1 */
@@ -399,7 +482,7 @@ static int mmc_wimax_status_register(void (*callback)(int card_present, void *de
 {
 	if (wimax_status_cb)
 		return -EAGAIN;
-	printk("%s\n", __func__);
+	printk(KERN_INFO "[WIMAX] %s\n", __func__);
 	wimax_status_cb = callback;
 	wimax_status_cb_devid = dev_id;
 	return 0;
@@ -407,30 +490,35 @@ static int mmc_wimax_status_register(void (*callback)(int card_present, void *de
 
 static unsigned int mmc_wimax_status(struct device *dev)
 {
-	printk("%s\n", __func__);
+	printk(KERN_INFO "[WIMAX] %s\n", __func__);
 	return mmc_wimax_cd;
 }
 
 void mmc_wimax_set_carddetect(int val)
 {
-	printk("%s: %d\n", __func__, val);
+	printk(KERN_INFO "[WIMAX] %s: %d\n", __func__, val);
 	mmc_wimax_cd = val;
 	if (wimax_status_cb) {
 		wimax_status_cb(val, wimax_status_cb_devid);
 	} else
-		printk(KERN_WARNING "%s: Nobody to notify\n", __func__);
+		printk(KERN_WARNING "[WIMAX] %s: Nobody to notify\n", __func__);
 }
 EXPORT_SYMBOL(mmc_wimax_set_carddetect);
 
-static unsigned int kingdom_wimax_type = MMC_TYPE_SDIO_WIMAX;
+static unsigned int mmc_wimax_type = MMC_TYPE_SDIO_WIMAX;
 
 static struct mmc_platform_data mmc_wimax_data = {
 	.ocr_mask		= MMC_VDD_27_28 | MMC_VDD_28_29 | MMC_VDD_29_30,
 	.status			= mmc_wimax_status,
 	.register_status_notify	= mmc_wimax_status_register,
 	.embedded_sdio		= NULL,
-	.slot_type		= &kingdom_wimax_type,
-	.dummy52_required = 1,
+	.slot_type		= &mmc_wimax_type,
+	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+	.msmsdcc_fmin   = 144000,
+	.msmsdcc_fmid   = 24576000,
+	.msmsdcc_fmax   = 49152000,
+	.nonremovable   = 0,
+/*	.dummy52_required = 1,*/
 };
 
 struct _vreg
@@ -441,53 +529,47 @@ struct _vreg
 
 int mmc_wimax_power(int on)
 {
-	printk("%s\n", __func__);
+	printk(KERN_INFO "[WIMAX] %s\n", __func__);
 
-        if (on)/*Power ON sequence*/ 
-	{
+        if (on)	{ /*Power ON sequence*/ 
                 gpio_set_value(KINGDOM_GPIO_V_WIMAX_PVDD_EN, 1);  /* V_WIMAX_PVDD_EN */
                 mdelay(10);
                 gpio_set_value(KINGDOM_GPIO_V_WIMAX_DVDD_EN, 1);   /* V_WIMAX_DVDD_EN */
 		mdelay(3);
                 gpio_set_value(KINGDOM_GPIO_V_WIMAX_1V2_RF_EN, 1); /* V_WIMAX_1V2_RF_EN */
                 mdelay(130);
-                //config_gpio_table(wimax_uart_on_gpio_table, ARRAY_SIZE(wimax_uart_on_gpio_table));// Configure UART3 TX/RX
+		/* config_gpio_table(wimax_uart_on_gpio_table, ARRAY_SIZE(wimax_uart_on_gpio_table)); *//* Configure UART3 TX/RX */
                 config_gpio_table(wimax_on_gpio_table, ARRAY_SIZE(wimax_on_gpio_table));
-	        //pm8058_gpio_config(wimax_debug_gpio_PWON_cfgs[0].gpio,&wimax_debug_gpio_PWON_cfgs[0].cfg);
-	        //pm8058_gpio_config(wimax_debug_gpio_PWON_cfgs[1].gpio,&wimax_debug_gpio_PWON_cfgs[1].cfg);
-	        //pm8058_gpio_config(wimax_debug_gpio_PWON_cfgs[2].gpio,&wimax_debug_gpio_PWON_cfgs[2].cfg);
+		/* pm8058_gpio_config(wimax_debug_gpio_PWON_cfgs[0].gpio,&wimax_debug_gpio_PWON_cfgs[0].cfg);
+		   pm8058_gpio_config(wimax_debug_gpio_PWON_cfgs[1].gpio,&wimax_debug_gpio_PWON_cfgs[1].cfg);
+		   pm8058_gpio_config(wimax_debug_gpio_PWON_cfgs[2].gpio,&wimax_debug_gpio_PWON_cfgs[2].cfg); */
 		mdelay(3);
                 gpio_set_value(KINGDOM_GPIO_WIMAX_EXT_RST, 1);     /* WIMAX_EXT_RSTz */
-	}
-	else 
-	{
-	        /*Power OFF sequence*/
+	} else { /*Power OFF sequence*/
 		gpio_set_value(KINGDOM_GPIO_WIMAX_EXT_RST, 0);     /* WIMAX_EXT_RSTz */
-		//config_gpio_table(wimax_uart_off_gpio_table, ARRAY_SIZE(wimax_uart_off_gpio_table));// Configure UART3 TX/RX
+		/* config_gpio_table(wimax_uart_off_gpio_table, ARRAY_SIZE(wimax_uart_off_gpio_table)); *//* Configure UART3 TX/RX */
 	        config_gpio_table(wimax_off_gpio_table, ARRAY_SIZE(wimax_off_gpio_table));
-	        //pm8058_gpio_config(wimax_debug_gpio_cfgs[0].gpio,&wimax_debug_gpio_cfgs[0].cfg);
-	        //pm8058_gpio_config(wimax_debug_gpio_cfgs[1].gpio,&wimax_debug_gpio_cfgs[1].cfg);
-	        //pm8058_gpio_config(wimax_debug_gpio_cfgs[2].gpio,&wimax_debug_gpio_cfgs[2].cfg);
+		/* pm8058_gpio_config(wimax_debug_gpio_cfgs[0].gpio,&wimax_debug_gpio_cfgs[0].cfg);
+		   pm8058_gpio_config(wimax_debug_gpio_cfgs[1].gpio,&wimax_debug_gpio_cfgs[1].cfg);
+		   pm8058_gpio_config(wimax_debug_gpio_cfgs[2].gpio,&wimax_debug_gpio_cfgs[2].cfg); */
 		mdelay(5);
 	        gpio_set_value(KINGDOM_GPIO_V_WIMAX_1V2_RF_EN, 0); /* V_WIMAX_1V2_RF_EN */
 		mdelay(3);
 	        gpio_set_value(KINGDOM_GPIO_V_WIMAX_DVDD_EN, 0);   /* V_WIMAX_DVDD_EN */
 		mdelay(3);
 	        gpio_set_value(KINGDOM_GPIO_V_WIMAX_PVDD_EN, 0);  /* V_WIMAX_PVDD_EN */
-
     	}
 
         return 0;
 }
-
 EXPORT_SYMBOL(mmc_wimax_power);
 
 int wimax_uart_switch = 0;
 int mmc_wimax_uart_switch(int uart)
 {
-	printk("%s uart:%d\n", __func__, uart);
+	printk(KERN_INFO "[WIMAX] %s uart:%d\n", __func__, uart);
 	wimax_uart_switch = uart;
-	gpio_set_value(KINGDOM_CPU_WIMAX_SW, uart?1:0); // CPU_WIMAX_SW
+	gpio_set_value(KINGDOM_CPU_WIMAX_SW, uart?1:0); /* CPU_WIMAX_SW */
 
 	return 0;
 }
@@ -495,7 +577,7 @@ EXPORT_SYMBOL(mmc_wimax_uart_switch);
 
 int mmc_wimax_get_uart_switch(void)
 {
-	printk("%s uart:%d\n", __func__, wimax_uart_switch);
+	printk(KERN_INFO "[WIMAX] %s uart:%d\n", __func__, wimax_uart_switch);
 	return wimax_uart_switch?1:0;
 }
 EXPORT_SYMBOL(mmc_wimax_get_uart_switch);
@@ -508,33 +590,30 @@ EXPORT_SYMBOL(mmc_wimax_get_hostwakeup_gpio);
 
 int mmc_wimax_get_hostwakeup_IRQ_ID(void)
 {
-	return MSM_GPIO_TO_INT(mmc_wimax_get_hostwakeup_gpio());
+	return gpio_to_irq(PM8058_GPIO_PM_TO_SYS(KINGDOM_WiMAX_HOST_WAKEUP));
 }
 EXPORT_SYMBOL(mmc_wimax_get_hostwakeup_IRQ_ID);
 
 void mmc_wimax_enable_host_wakeup(int on)
 {
-	if (mmc_wimax_get_status())
-	{	
+	if (mmc_wimax_get_status()) {	
 		if (on) {
 			if (!mmc_wimax_get_gpio_irq_enabled()) {
-				printk("set GPIO%d as wakeup source on IRQ %d\n", mmc_wimax_get_hostwakeup_gpio(),mmc_wimax_get_hostwakeup_IRQ_ID());
+				printk(KERN_INFO "[WIMAX] set GPIO%d as wakeup source on IRQ %d\n", mmc_wimax_get_hostwakeup_gpio(), mmc_wimax_get_hostwakeup_IRQ_ID());
 				enable_irq(mmc_wimax_get_hostwakeup_IRQ_ID());
 				enable_irq_wake(mmc_wimax_get_hostwakeup_IRQ_ID());
 				mmc_wimax_set_gpio_irq_enabled(1);
 			}
-		}
-		else {
+		} else {
 			if (mmc_wimax_get_gpio_irq_enabled()) {
-				printk("disable GPIO%d wakeup source\n", mmc_wimax_get_hostwakeup_gpio());
-				disable_irq_wake(mmc_wimax_get_hostwakeup_IRQ_ID());				
+				printk(KERN_INFO "[WIMAX] disable GPIO%d wakeup source\n", mmc_wimax_get_hostwakeup_gpio());
+				disable_irq_wake(mmc_wimax_get_hostwakeup_IRQ_ID());
 				disable_irq_nosync(mmc_wimax_get_hostwakeup_IRQ_ID());
 				mmc_wimax_set_gpio_irq_enabled(0);
 			}
 		}
-	}
-	else {
-		printk("%s mmc_wimax_sdio_status is OFF\n", __func__);
+	} else {
+		printk(KERN_INFO "[WIMAX] %s mmc_wimax_sdio_status is OFF\n", __func__);
 	}
 }
 EXPORT_SYMBOL(mmc_wimax_enable_host_wakeup);
@@ -543,31 +622,51 @@ int __init kingdom_init_mmc(unsigned int sys_rev)
 {
 	uint32_t id;
 	wifi_status_cb = NULL;
+#if 0
 	sdslot_vreg_enabled = 0;
+#endif
 
 	printk(KERN_INFO "kingdom: %s\n", __func__);
 	/* SDC1: Initial WiMAX */
+	/*
 	register_msm_irq_mask(INT_SDC1_0);
 	register_msm_irq_mask(INT_SDC1_1);
-	msm_add_sdcc(1, &mmc_wimax_data,0,0);
+	*/
 
-	//initial WiMAX pin
+#if PM_QOS
+	/* PM QoS for wimax */
+	mmc_wimax_data.swfi_latency =
+		msm_pm_data[MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT].latency;
+#endif
+	msm_add_sdcc(1, &mmc_wimax_data);
+
+	/* initialized WiMAX pin */
 	config_gpio_table(wimax_initial_gpio_table, ARRAY_SIZE(wimax_initial_gpio_table));
 
 	/* SDC2: MoviNAND */
+#if 0
 	register_msm_irq_mask(INT_SDC2_0);
 	register_msm_irq_mask(INT_SDC2_1);
+#endif
 	config_gpio_table(movinand_on_gpio_table,
 		ARRAY_SIZE(movinand_on_gpio_table));
-	msm_add_sdcc(2, &kingdom_movinand_data, 0, 0);
+#if 0
+	msm_add_sdcc(2, &kingdom_movinand_data);
+#endif
 
 	/* initial WIFI_SHUTDOWN# */
 	id = PCOM_GPIO_CFG(KINGDOM_GPIO_WIFI_SHUTDOWN_N, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),
 	msm_proc_comm(PCOM_RPC_GPIO_TLMM_CONFIG_EX, &id, 0);
 	gpio_set_value(KINGDOM_GPIO_WIFI_SHUTDOWN_N, 0);
 
-	msm_add_sdcc(3, &kingdom_wifi_data, 0, 0);
+#if PM_QOS
+	/* PM QoS for wifi */
+	kingdom_wifi_data.swfi_latency =
+		msm_pm_data[MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT].latency;
+#endif
+	msm_add_sdcc(3, &kingdom_wifi_data);
 
+#if 0
 	if (opt_disable_sdcard) {
 		printk(KERN_INFO "kingdom: SD-Card interface disabled\n");
 		goto done;
@@ -579,8 +678,9 @@ int __init kingdom_init_mmc(unsigned int sys_rev)
 	register_msm_irq_mask(INT_SDC4_0);
 	register_msm_irq_mask(INT_SDC4_1);
 	set_irq_wake(MSM_GPIO_TO_INT(KINGDOM_SDMC_CD_N_TO_SYS), 1);
-	msm_add_sdcc(4, &kingdom_sdslot_data, 0, 0);
+	msm_add_sdcc(4, &kingdom_sdslot_data);
 done:
+#endif
 
 	/* reset eMMC for write protection test */
 	gpio_set_value(KINGDOM_GPIO_EMMC_RST, 0);	/* this should not work!!! */

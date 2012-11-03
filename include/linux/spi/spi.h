@@ -213,6 +213,7 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
 /**
  * struct spi_master - interface to SPI master controller
  * @dev: device interface to this driver
+ * @list: link with the global spi_master list
  * @bus_num: board-specific (and often SOC-specific) identifier for a
  *	given SPI controller.
  * @num_chipselect: chipselects are used to distinguish individual
@@ -222,6 +223,9 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  * @dma_alignment: SPI controller constraint on DMA buffers alignment.
  * @mode_bits: flags understood by this controller driver
  * @flags: other constraints relevant to this driver
+ * @bus_lock_spinlock: spinlock for SPI bus locking
+ * @bus_lock_mutex: mutex for SPI bus locking
+ * @bus_lock_flag: indicates that the SPI bus is locked for exclusive use
  * @setup: updates the device mode and clocking records used by a
  *	device's SPI controller; protocol code may call this.  This
  *	must fail if an unrecognized or unsupported mode is requested.
@@ -243,6 +247,8 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  */
 struct spi_master {
 	struct device	dev;
+
+	struct list_head list;
 
 	/* other than negative (== assign one dynamically), bus_num is fully
 	 * board-specific.  usually that simplifies to being SOC-specific.
@@ -270,6 +276,13 @@ struct spi_master {
 #define SPI_MASTER_HALF_DUPLEX	BIT(0)		/* can't do full duplex */
 #define SPI_MASTER_NO_RX	BIT(1)		/* can't do buffer read */
 #define SPI_MASTER_NO_TX	BIT(2)		/* can't do buffer write */
+
+	/* lock and mutex for SPI bus locking */
+	spinlock_t		bus_lock_spinlock;
+	struct mutex		bus_lock_mutex;
+
+	/* flag indicating that the SPI bus is locked for exclusive use */
+	bool			bus_lock_flag;
 
 	/* Setup mode and clock, etc (spi driver may call many times).
 	 *
@@ -551,6 +564,8 @@ static inline void spi_message_free(struct spi_message *m)
 
 extern int spi_setup(struct spi_device *spi);
 extern int spi_async(struct spi_device *spi, struct spi_message *message);
+extern int spi_async_locked(struct spi_device *spi,
+			    struct spi_message *message);
 
 /*---------------------------------------------------------------------------*/
 
@@ -560,6 +575,9 @@ extern int spi_async(struct spi_device *spi, struct spi_message *message);
  */
 
 extern int spi_sync(struct spi_device *spi, struct spi_message *message);
+extern int spi_sync_locked(struct spi_device *spi, struct spi_message *message);
+extern int spi_bus_lock(struct spi_master *master);
+extern int spi_bus_unlock(struct spi_master *master);
 
 /**
  * spi_write - SPI synchronous write
@@ -572,7 +590,7 @@ extern int spi_sync(struct spi_device *spi, struct spi_message *message);
  * Callable only from contexts that can sleep.
  */
 static inline int
-spi_write(struct spi_device *spi, const u8 *buf, size_t len)
+spi_write(struct spi_device *spi, const void *buf, size_t len)
 {
 	struct spi_transfer	t = {
 			.tx_buf		= buf,
@@ -596,7 +614,7 @@ spi_write(struct spi_device *spi, const u8 *buf, size_t len)
  * Callable only from contexts that can sleep.
  */
 static inline int
-spi_read(struct spi_device *spi, u8 *buf, size_t len)
+spi_read(struct spi_device *spi, void *buf, size_t len)
 {
 	struct spi_transfer	t = {
 			.rx_buf		= buf,
@@ -611,20 +629,20 @@ spi_read(struct spi_device *spi, u8 *buf, size_t len)
 
 /* this copies txbuf and rxbuf data; for small transfers only! */
 extern int spi_write_then_read(struct spi_device *spi,
-		const u8 *txbuf, unsigned n_tx,
-		u8 *rxbuf, unsigned n_rx);
+		const void *txbuf, unsigned n_tx,
+		void *rxbuf, unsigned n_rx);
 
 /* HTC: to support write/read in full duplex mode */
 extern int spi_write_and_read(struct spi_device *spi,
 		u8 *txbuf, u8 *rxbuf, unsigned size);
 
 /*
- * htc workaround to support multiple clients: add mutex lock to avoid SPI commands conflict.
- * @func: true for spi write, false for spi read
- * @msg: spi write commands struct
- * @buf: spi read buffer
- * @size: read/wirte length
- */
+* htc workaround to support multiple clients: add mutex lock to avoid SPI commands conflict.
+* @func: true for spi write, false for spi read
+* @msg: spi write commands struct
+* @buf: spi read buffer
+* @size: read/wirte length
+*/
 extern int
 spi_read_write_lock(struct spi_device *spidev, struct spi_msg * msg, char *buf, int size, int func);
 /**
@@ -744,7 +762,6 @@ struct spi_board_info {
 	 */
 	u16		bus_num;
 	u16		chip_select;
-	u16		ext_gpio_cs;
 
 	/* mode becomes spi_device.mode, and is essential for chips
 	 * where the default of SPI_CS_HIGH = 0 is wrong.
@@ -767,10 +784,6 @@ static inline int
 spi_register_board_info(struct spi_board_info const *info, unsigned n)
 	{ return 0; }
 #endif
-
-struct spi_platform_data {
-	int clk_rate;
-};
 
 
 /* If you're hotplugging an adapter with devices (parport, usb, etc)

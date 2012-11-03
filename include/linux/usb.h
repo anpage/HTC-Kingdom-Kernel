@@ -20,6 +20,7 @@
 #include <linux/completion.h>	/* for struct completion */
 #include <linux/sched.h>	/* for current && schedule_timeout */
 #include <linux/mutex.h>	/* for struct mutex */
+#include <linux/pm_runtime.h>	/* for runtime PM */
 
 struct usb_device;
 struct usb_driver;
@@ -127,6 +128,8 @@ enum usb_interface_condition {
  *      queued reset so that usb_cancel_queued_reset() doesn't try to
  *      remove from the workqueue when running inside the worker
  *      thread. See __usb_queue_reset_device().
+ * @resetting_device: USB core reset the device, so use alt setting 0 as
+ *	current; needs bandwidth alloc after reset.
  *
  * USB device drivers attach to interfaces on a physical device.  Each
  * interface encapsulates a single high level function, such as feeding
@@ -311,6 +314,10 @@ struct usb_bus {
 	int busnum;			/* Bus number (in order of reg) */
 	const char *bus_name;		/* stable id (PCI slot_name etc) */
 	u8 uses_dma;			/* Does the host controller use DMA? */
+	u8 uses_pio_for_control;	/*
+					 * Does the host controller use PIO
+					 * for control transfers?
+					 */
 	u8 otg_port;			/* 0, or number of OTG/HNP port */
 	unsigned is_b_host:1;		/* true during some HNP roleswitches */
 	unsigned b_hnp_enable:1;	/* OTG: did A-Host enable HNP? */
@@ -357,6 +364,16 @@ struct usb_bus {
  * limit. Because the arrays need to add a bit for hub status data, we
  * do 31, so plus one evens out to four bytes.
  */
+
+#if defined(CONFIG_USB_PEHCI_HCD) || defined(CONFIG_USB_PEHCI_HCD_MODULE)
+#define USB_OTG_SUSPEND		0x1
+#define USB_OTG_ENUMERATE	0x2
+#define USB_OTG_DISCONNECT	0x4
+#define USB_OTG_RESUME		0x8
+#define USB_OTG_REMOTEWAKEUP	0x10
+#define USB_OTG_WAKEUP_ALL	0x20
+#endif
+
 #define USB_MAXCHILDREN		(31)
 
 struct usb_tt;
@@ -407,8 +424,6 @@ struct usb_tt;
  * @quirks: quirks of the whole device
  * @urbnum: number of URBs submitted for the whole device
  * @active_duration: total time device is not suspended
- * @last_busy: time of last use
- * @autosuspend_delay: in jiffies
  * @connect_time: time device was first connected
  * @do_remote_wakeup:  remote wakeup should be enabled
  * @reset_resume: needs reset instead of resume
@@ -472,6 +487,18 @@ struct usb_device {
 	struct dentry *usbfs_dentry;
 #endif
 
+#if defined(CONFIG_USB_PEHCI_HCD) || defined(CONFIG_USB_PEHCI_HCD_MODULE)
+	/*otg add ons */
+	u8 otgdevice;				/*device is otg type */
+
+	/*otg states from otg driver, suspend, enumerate, disconnect */
+	u8 otgstate;
+	void *otgpriv;
+	void (*otg_notif) (void *otg_priv,
+				unsigned long notif, unsigned long data);
+	void *hcd_priv;
+	void (*hcd_suspend) (void *hcd_priv);
+#endif
 	int maxchild;
 	struct usb_device *children[USB_MAXCHILDREN];
 
@@ -481,8 +508,6 @@ struct usb_device {
 	unsigned long active_duration;
 
 #ifdef CONFIG_PM
-	unsigned long last_busy;
-	int autosuspend_delay;
 	unsigned long connect_time;
 
 	unsigned do_remote_wakeup:1;
@@ -527,7 +552,7 @@ extern void usb_autopm_put_interface_no_suspend(struct usb_interface *intf);
 
 static inline void usb_mark_last_busy(struct usb_device *udev)
 {
-	udev->last_busy = jiffies;
+	pm_runtime_mark_last_busy(&udev->dev);
 }
 
 #else
@@ -622,7 +647,7 @@ extern struct usb_host_interface *usb_find_alt_setting(
  * USB hubs.  That makes it stay the same until systems are physically
  * reconfigured, by re-cabling a tree of USB devices or by moving USB host
  * controllers.  Adding and removing devices, including virtual root hubs
- * in host controller driver modules, does not change these path identifers;
+ * in host controller driver modules, does not change these path identifiers;
  * neither does rebooting or re-enumerating.  These are more useful identifiers
  * than changeable ("unstable") ones like bus numbers or device addresses.
  *
@@ -792,12 +817,12 @@ struct usbdrv_wrap {
  *	usb_set_intfdata() to associate driver-specific data with the
  *	interface.  It may also use usb_set_interface() to specify the
  *	appropriate altsetting.  If unwilling to manage the interface,
- *	return -ENODEV, if genuine IO errors occured, an appropriate
+ *	return -ENODEV, if genuine IO errors occurred, an appropriate
  *	negative errno value.
  * @disconnect: Called when the interface is no longer accessible, usually
  *	because its device has been (or is being) disconnected or the
  *	driver module is being unloaded.
- * @ioctl: Used for drivers that want to talk to userspace through
+ * @unlocked_ioctl: Used for drivers that want to talk to userspace through
  *	the "usbfs" filesystem.  This lets devices provide ways to
  *	expose information to user space regardless of where they
  *	do (or don't) show up otherwise in the filesystem.
@@ -805,8 +830,10 @@ struct usbdrv_wrap {
  * @resume: Called when the device is being resumed by the system.
  * @reset_resume: Called when the suspended device has been reset instead
  *	of being resumed.
- * @pre_reset: Called by usb_reset_device() when the device
- *	is about to be reset.
+ * @pre_reset: Called by usb_reset_device() when the device is about to be
+ *	reset.  This routine must not return until the driver has no active
+ *	URBs for the device, and no more URBs may be submitted until the
+ *	post_reset method is called.
  * @post_reset: Called by usb_reset_device() after the device
  *	has been reset
  * @id_table: USB drivers use ID table to support hotplugging.
@@ -845,7 +872,7 @@ struct usb_driver {
 
 	void (*disconnect) (struct usb_interface *intf);
 
-	int (*ioctl) (struct usb_interface *intf, unsigned int code,
+	int (*unlocked_ioctl) (struct usb_interface *intf, unsigned int code,
 			void *buf);
 
 	int (*suspend) (struct usb_interface *intf, pm_message_t message);
@@ -975,6 +1002,7 @@ extern int usb_disabled(void);
 #define URB_SETUP_MAP_SINGLE	0x00100000	/* Setup packet DMA mapped */
 #define URB_SETUP_MAP_LOCAL	0x00200000	/* HCD-local setup packet */
 #define URB_DMA_SG_COMBINED	0x00400000	/* S-G entries were combined */
+#define URB_ALIGNED_TEMP_BUFFER	0x00800000	/* Temp buffer was alloc'd */
 
 struct usb_iso_packet_descriptor {
 	unsigned int offset;
@@ -1017,6 +1045,7 @@ typedef void (*usb_complete_t)(struct urb *);
  *	is a different endpoint (and pipe) from "out" endpoint two.
  *	The current configuration controls the existence, type, and
  *	maximum packet size of any given endpoint.
+ * @stream_id: the endpoint's stream ID for bulk streams
  * @dev: Identifies the USB device to perform the request.
  * @status: This is read in non-iso completion functions to get the
  *	status of the particular request.  ISO requests only use it
@@ -1579,8 +1608,15 @@ usb_maxpacket(struct usb_device *udev, int pipe, int is_out)
 #define USB_DEVICE_REMOVE	0x0002
 #define USB_BUS_ADD		0x0003
 #define USB_BUS_REMOVE		0x0004
+#define USB_DEVICE_CONFIG	0x0005
+
+#ifdef CONFIG_USB
 extern void usb_register_notify(struct notifier_block *nb);
 extern void usb_unregister_notify(struct notifier_block *nb);
+#else
+static inline void usb_register_notify(struct notifier_block *nb) {}
+static inline void usb_unregister_notify(struct notifier_block *nb) {}
+#endif
 
 #ifdef DEBUG
 #define dbg(format, arg...)						\

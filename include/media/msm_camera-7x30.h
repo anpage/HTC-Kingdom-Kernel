@@ -64,9 +64,13 @@
 #define MSM_CAM_IOCTL_AXI_CONFIG \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 16, struct msm_camera_vfe_cfg_cmd *)
 
+#ifdef CONFIG_CAMERA_MULTISHOT
+#define MSM_CAM_IOCTL_GET_PICTURE \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 17, struct msm_frame *)
+#else
 #define MSM_CAM_IOCTL_GET_PICTURE \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 17, struct msm_camera_ctrl_cmd *)
-
+#endif
 #define MSM_CAM_IOCTL_SET_CROP \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 18, struct crop_info *)
 
@@ -104,7 +108,19 @@
 #define MSM_CAM_IOCTL_AXI_VPE_CONFIG \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 28, struct msm_camera_vpe_cfg_cmd *)
 
+#ifdef CONFIG_CAMERA_MULTISHOT
+#define MSM_CAM_IOCTL_UNBLOCK_POLL_PIC_FRAME \
+	_IO(MSM_CAM_IOCTL_MAGIC, 29)
 
+#define MSM_CAM_IOCTL_RELEASE_PIC_BUFFER \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 30, struct camera_enable_cmd *)
+
+#define MSM_CAM_IOCTL_SEND_OUTPUT_S \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 31, uint8_t *)
+
+#define MSM_CAM_IOCTL_DROP_OUTPUT_S \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 32, uint8_t *)
+#endif
 
 #define PP_SNAP  0x01
 #define PP_RAW_SNAP ((0x01)<<1)
@@ -220,6 +236,8 @@ struct msm_camera_cfg_cmd {
 #define CMD_STATS_CS_ENABLE 40
 #define CMD_VPE 41
 #define CMD_AXI_CFG_VPE 42
+#define CMD_AXI_CFG_MULTISHOT 43
+
 
 /* vfe config command: config command(from config thread)*/
 struct msm_vfe_cfg_cmd {
@@ -309,6 +327,7 @@ struct outputCfg {
 struct msm_frame {
 	int path;
 	unsigned long buffer;
+	uint32_t phy_offset;
 	uint32_t y_off;
 	uint32_t cbcr_off;
 	int fd;
@@ -379,6 +398,8 @@ struct msm_camsensor_info {
 	char name[MAX_SENSOR_NAME];
 	uint8_t flash_enabled;
 	int8_t total_steps;
+	uint8_t use_rawchip;//HTC_START Simon 20120119
+	uint8_t mirror_flip;//HTC_START Simon 20120203 - Sensor Orientation
 };
 
 struct msm_camera_info {

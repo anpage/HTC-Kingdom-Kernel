@@ -34,3 +34,4 @@ int sqn_stop_tx_thread(struct sqn_private *priv);
 int sqn_rx_process(struct net_device *dev, struct sk_buff *skb);
 
 #endif /* _SQN_MAIN_H */
+

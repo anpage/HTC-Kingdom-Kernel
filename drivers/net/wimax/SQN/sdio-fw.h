@@ -14,20 +14,23 @@
 #define _SQN_FIRMWARE_H
 
 #include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 33)
+/* #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 33) */
+#if 0
 #include <linux/autoconf.h>
-#else
+/* #else */
+#endif
+#if 1
 #include <generated/autoconf.h>
 #endif
 
-//#define SQN_UNIQUE_FIRMWARE	//Flag to enable SQN_UNIQUE_FIRMWARE emchanism
+/* #define SQN_UNIQUE_FIRMWARE	*/ /* Flag to enable SQN_UNIQUE_FIRMWARE emchanism */
 
 #ifdef SQN_UNIQUE_FIRMWARE
 
 #define SQN_DEFAULT_BOOTROM_NAME	"../../../data/wimax/Boot.bin"
 #define SQN_DEFAULT_STARTUP_SCRIPT_NAME	"../../../data/wimax/startup-script.txt"
 #define SQN_DEFAULT_FW_NAME	"/data/wimax/default.fw"
-//Error handling for load default.fw fail.
+/* Error handling for load default.fw fail. */
 #define SQN_DEFAULT_FW_NAME_RECOVERY	"/data/wimax/app_default.fw"
 
 extern char *bootrom1130_name;
@@ -40,7 +43,7 @@ extern char *fw1210_name;
 extern char *fw1130_name;
 extern char *fw1210_name;
 #endif
-
+extern char *firmware_name;
 int sqn_load_firmware(struct sdio_func *func);
 
 #endif /* _SQN_FIRMWARE_H */

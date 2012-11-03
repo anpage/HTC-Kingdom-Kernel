@@ -17,7 +17,6 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/rtc.h>
-#include <linux/syscalls.h> /* sys_sync */
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
 
@@ -27,12 +26,15 @@ enum {
 	DEBUG_USER_STATE = 1U << 0,
 	DEBUG_SUSPEND = 1U << 2,
 	DEBUG_NO_SUSPEND = 1U << 3,
+	DEBUG_VERBOSE = 1U << 3,
 };
+
 #ifdef CONFIG_NO_SUSPEND
 static int debug_mask = DEBUG_USER_STATE | DEBUG_NO_SUSPEND;
 #else
 static int debug_mask = DEBUG_USER_STATE;
 #endif
+
 module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
 static DEFINE_MUTEX(early_suspend_lock);
@@ -43,7 +45,6 @@ static DECLARE_WORK(early_suspend_work, early_suspend);
 static DECLARE_WORK(late_resume_work, late_resume);
 static DEFINE_SPINLOCK(state_lock);
 enum {
-	SUSPENDED_ON = 0x0,
 	SUSPEND_REQUESTED = 0x1,
 	SUSPENDED = 0x2,
 	SUSPEND_REQUESTED_AND_SUSPENDED = SUSPEND_REQUESTED | SUSPENDED,
@@ -86,10 +87,6 @@ void unregister_early_suspend(struct early_suspend *handler)
 }
 EXPORT_SYMBOL(unregister_early_suspend);
 
-#ifdef CONFIG_SYS_SYNC_BLOCKING_DEBUG
-void sys_sync_debug(void);
-#endif
-
 static void early_suspend(struct work_struct *work)
 {
 	struct early_suspend *pos;
@@ -119,21 +116,15 @@ static void early_suspend(struct work_struct *work)
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("early_suspend: call handlers\n");
 	list_for_each_entry(pos, &early_suspend_handlers, link) {
-		if (pos->suspend != NULL)
+		if (pos->suspend != NULL) {
+			if (debug_mask & DEBUG_VERBOSE)
+				pr_info("early_suspend: calling %pf\n", pos->suspend);
 			pos->suspend(pos);
+		}
 	}
 	mutex_unlock(&early_suspend_lock);
 
-	if (debug_mask & DEBUG_SUSPEND)
-		pr_info("early_suspend: sync\n");
-
-	pr_info("[R] early_suspend: sync\n");
-
-#ifdef CONFIG_SYS_SYNC_BLOCKING_DEBUG
-	sys_sync_debug();
-#else
-	sys_sync();
-#endif
+	suspend_sys_sync_queue();
 
 	if (debug_mask & DEBUG_NO_SUSPEND) {
 		pr_info("DEBUG_NO_SUSPEND set, will not suspend\n");
@@ -174,13 +165,19 @@ static void late_resume(struct work_struct *work)
 	}
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: call handlers\n");
-	list_for_each_entry_reverse(pos, &early_suspend_handlers, link)
-		if (pos->resume != NULL)
+	list_for_each_entry_reverse(pos, &early_suspend_handlers, link) {
+		if (pos->resume != NULL) {
+			if (debug_mask & DEBUG_VERBOSE)
+				pr_info("late_resume: calling %pf\n", pos->resume);
+
 			pos->resume(pos);
+		}
+	}
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: done\n");
 
-	wake_unlock(&no_suspend_wake_lock);
+	if (debug_mask & DEBUG_NO_SUSPEND)
+		wake_unlock(&no_suspend_wake_lock);
 
 abort:
 	mutex_unlock(&early_suspend_lock);
@@ -217,7 +214,6 @@ static void onchg_suspend(struct work_struct *work)
 	struct early_suspend *pos;
 	unsigned long irqflags;
 	int abort = 0;
-
 	pr_info("[R] onchg_suspend start\n");
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
@@ -253,11 +249,10 @@ static void onchg_resume(struct work_struct *work)
 	struct early_suspend *pos;
 	unsigned long irqflags;
 	int abort = 0;
-
 	pr_info("[R] onchg_resume start\n");
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
-	if ( state == SUSPEND_REQUESTED_AND_SUSPENDED &&
+	if (state == SUSPEND_REQUESTED_AND_SUSPENDED &&
 	     state_onchg == SUSPENDED)
 		state_onchg &= ~SUSPENDED;
 	else
@@ -285,7 +280,6 @@ void request_onchg_state(int on)
 {
 	unsigned long irqflags;
 	int old_sleep;
-
 	spin_lock_irqsave(&state_lock, irqflags);
 	if (debug_mask & DEBUG_USER_STATE) {
 		struct timespec ts;
@@ -307,8 +301,7 @@ void request_onchg_state(int on)
 		if (!old_sleep && on == 0) {
 			state_onchg |= SUSPEND_REQUESTED;
 			queue_work(suspend_work_queue, &onchg_suspend_work);
-		}
-		else if (old_sleep && on ==1) {
+		} else if (old_sleep && on == 1) {
 			state_onchg &= ~SUSPEND_REQUESTED;
 			queue_work(suspend_work_queue, &onchg_resume_work);
 		}

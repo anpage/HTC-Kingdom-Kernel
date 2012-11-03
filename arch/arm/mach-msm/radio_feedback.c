@@ -58,8 +58,9 @@ typedef struct {
 	uint32_t      	htc_smem_ce_radio_dbg_flag;
 	uint32_t      	htc_smem_app_run_mode;
 	uint32_t      	htc_smem_test_flag;
-	uint32_t			htc_smem_boot_reason;
-	uint8_t      		reserve1[8];
+	uint32_t		htc_smem_boot_reason;
+	int32_t			htc_cable_status;
+	uint8_t			reserve1[4];
 
 
 /* ========= belows are modem write ==================== */
@@ -116,6 +117,19 @@ struct msm_radio_feedback_config {
 };
 struct mutex radio_feedback_lock;
 struct msm_radio_feedback_config config;
+
+int radio_set_cable_status(int charger_type)
+{
+#ifdef CONFIG_RADIO_FEEDBACK8660
+	if (htc_smem_ram_addr == NULL)
+		htc_smem_ram_addr = (htc_smem_type *)ioremap(HTC_SMEM_PARAM_BASE_ADDR, sizeof(htc_smem_type));
+
+	htc_smem_ram_addr->htc_cable_status = charger_type;
+	printk(KERN_INFO "[BATT] htc_cable_status:%d\n", htc_smem_ram_addr->htc_cable_status);
+#endif
+	return 0;
+}
+
 static long radio_feedback_ioctl(struct file *file, unsigned int cmd,
 				unsigned long arg)
 {
@@ -123,7 +137,8 @@ static long radio_feedback_ioctl(struct file *file, unsigned int cmd,
 	switch (cmd) {
 	case RADIO_FEEDBACK_GET_CDLOG_INFO:
 #ifdef CONFIG_RADIO_FEEDBACK8660
-		htc_smem_ram_addr = (htc_smem_type *)ioremap(HTC_SMEM_PARAM_BASE_ADDR, sizeof(htc_smem_type));
+		if (htc_smem_ram_addr == NULL)
+			htc_smem_ram_addr = (htc_smem_type *)ioremap(HTC_SMEM_PARAM_BASE_ADDR, sizeof(htc_smem_type));
 		config.start_addr = htc_smem_ram_addr->htc_cdlog_start_addr_for_apps;
 		config.max_size = htc_smem_ram_addr->htc_cdlog_max_size_for_apps;
 #else

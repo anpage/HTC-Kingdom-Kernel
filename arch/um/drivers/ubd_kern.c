@@ -33,6 +33,7 @@
 #include "linux/mm.h"
 #include "linux/slab.h"
 #include "linux/vmalloc.h"
+#include "linux/mutex.h"
 #include "linux/blkpg.h"
 #include "linux/genhd.h"
 #include "linux/spinlock.h"
@@ -99,6 +100,7 @@ static inline void ubd_set_bit(__u64 bit, unsigned char *data)
 #define DRIVER_NAME "uml-blkdev"
 
 static DEFINE_MUTEX(ubd_lock);
+static DEFINE_MUTEX(ubd_mutex); /* replaces BKL, might not be needed */
 
 static int ubd_open(struct block_device *bdev, fmode_t mode);
 static int ubd_release(struct gendisk *disk, fmode_t mode);
@@ -183,7 +185,7 @@ struct ubd {
 	.no_cow =               0, \
 	.shared =		0, \
 	.cow =			DEFAULT_COW, \
-	.lock =			SPIN_LOCK_UNLOCKED,	\
+	.lock =			__SPIN_LOCK_UNLOCKED(ubd_devs.lock), \
 	.request =		NULL, \
 	.start_sg =		0, \
 	.end_sg =		0, \
@@ -511,8 +513,37 @@ __uml_exitcall(kill_io_thread);
 static inline int ubd_file_size(struct ubd *ubd_dev, __u64 *size_out)
 {
 	char *file;
+	int fd;
+	int err;
 
-	file = ubd_dev->cow.file ? ubd_dev->cow.file : ubd_dev->file;
+	__u32 version;
+	__u32 align;
+	char *backing_file;
+	time_t mtime;
+	unsigned long long size;
+	int sector_size;
+	int bitmap_offset;
+
+	if (ubd_dev->file && ubd_dev->cow.file) {
+		file = ubd_dev->cow.file;
+
+		goto out;
+	}
+
+	fd = os_open_file(ubd_dev->file, global_openflags, 0);
+	if (fd < 0)
+		return fd;
+
+	err = read_cow_header(file_reader, &fd, &version, &backing_file, \
+		&mtime, &size, &sector_size, &align, &bitmap_offset);
+	os_close_file(fd);
+
+	if(err == -EINVAL)
+		file = ubd_dev->file;
+	else
+		file = backing_file;
+
+out:
 	return os_file_size(file, size_out);
 }
 
@@ -1100,6 +1131,7 @@ static int ubd_open(struct block_device *bdev, fmode_t mode)
 	struct ubd *ubd_dev = disk->private_data;
 	int err = 0;
 
+	mutex_lock(&ubd_mutex);
 	if(ubd_dev->count == 0){
 		err = ubd_open_dev(ubd_dev);
 		if(err){
@@ -1117,7 +1149,8 @@ static int ubd_open(struct block_device *bdev, fmode_t mode)
 	        if(--ubd_dev->count == 0) ubd_close_dev(ubd_dev);
 	        err = -EROFS;
 	}*/
- out:
+out:
+	mutex_unlock(&ubd_mutex);
 	return err;
 }
 
@@ -1125,8 +1158,10 @@ static int ubd_release(struct gendisk *disk, fmode_t mode)
 {
 	struct ubd *ubd_dev = disk->private_data;
 
+	mutex_lock(&ubd_mutex);
 	if(--ubd_dev->count == 0)
 		ubd_close_dev(ubd_dev);
+	mutex_unlock(&ubd_mutex);
 	return 0;
 }
 

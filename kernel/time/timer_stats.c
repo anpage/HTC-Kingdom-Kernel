@@ -236,7 +236,7 @@ void timer_stats_update_stats(void *timer, pid_t pid, void *startf,
 			      unsigned int timer_flag)
 {
 	/*
-	 * It doesnt matter which lock we take:
+	 * It doesn't matter which lock we take:
 	 */
 	raw_spinlock_t *lock;
 	struct entry *entry, input;
@@ -338,7 +338,8 @@ static int tstats_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-#ifdef CONFIG_ARCH_MSM8X60_LTE
+#if defined(CONFIG_ARCH_MSM8X60_LTE) || defined(CONFIG_ARCH_MSM7X27)
+
 void htc_prink_name_offset(unsigned long addr)
 {
 	char symname[KSYM_NAME_LEN];
@@ -373,7 +374,7 @@ void htc_timer_stats_show(u16 water_mark)
 	for (i = 0; i < nr_entries; i++) {
 		entry = entries + i;
 		events += entry->count;
-		if(entry->count<water_mark)
+		if (entry->count < water_mark)
 			continue;
 		if (entry->timer_flag & TIMER_STATS_FLAG_DEFERRABLE) {
 			printk("%4luD, %5d %-16s ",
@@ -458,7 +459,7 @@ static ssize_t tstats_write(struct file *file, const char __user *buf,
 	return count;
 }
 
-#ifdef CONFIG_ARCH_MSM8X60_LTE
+#if defined(CONFIG_ARCH_MSM8X60_LTE) || defined(CONFIG_ARCH_MSM7X27)
 void htc_timer_stats_OnOff(char OnOff)
 {
 	mutex_lock(&show_mutex);

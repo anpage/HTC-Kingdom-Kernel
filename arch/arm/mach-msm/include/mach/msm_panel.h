@@ -1,6 +1,11 @@
 #ifndef _MSM_PANEL_H_
 #define _MSM_PANEL_H_
 
+enum {
+	GATE_ON_DCR = 1 << 0,
+	CABC_STATE_DCR,
+};
+
 struct panel_platform_data {
 	struct resource *fb_res;
 	int (*power)(int on);
@@ -36,10 +41,14 @@ struct cabc_config {
 };
 
 struct panel_dcr_info {
-	struct mutex dcr_lock;
-	void (*enable)(void);
-	void (*disable)(void);
-	void (*default_mode)(void);
-	void (*video_mode)(void);
+	int (*lut_table)(void);
+	void (*dcr_video_mode)(bool on);
+	void (*dcr_power)(bool on);
+	void (*bkl_smooth)(bool on);
+	bool (*get_bkl_smooth_status)(void);
+	atomic_t video_mode;
+	unsigned long auto_bkl_stat;
 };
+
+extern unsigned long auto_bkl_status;
 #endif

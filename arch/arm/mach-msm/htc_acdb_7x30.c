@@ -52,7 +52,7 @@ static struct acdb_ops *the_ops = &default_acdb_ops;
 static uint32_t acdb_smem_size;
 static char acdb_init_file[64];
 
-static int acdb_init(char*);
+static int acdb_init(char *);
 
 struct acdb_update_info {
 	uint32_t size;
@@ -162,7 +162,8 @@ static int update_acdb_table(uint32_t size, int done)
 	return rc;
 }
 
-static int htc_reinit_acdb(char* filename) {
+static int htc_reinit_acdb(char *filename)
+{
 	int rc = 0;
 
 	if (strlen(filename) < 0) {
@@ -295,7 +296,7 @@ static int acdb_init(char *filename)
 
 	if (fw == NULL)
 		return -EINVAL;
-	db = (void*) fw->data;
+	db = (void *) fw->data;
 
 	if (the_ops->get_acdb_radio_buffer_size)
 		acdb_radio_buffer_size = the_ops->get_acdb_radio_buffer_size();

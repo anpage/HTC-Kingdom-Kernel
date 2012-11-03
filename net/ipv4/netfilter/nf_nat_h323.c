@@ -105,6 +105,11 @@ static int set_sig_addr(struct sk_buff *skb, struct nf_conn *ct,
 	__be16 port;
 	union nf_inet_addr addr;
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	for (i = 0; i < count; i++) {
 		if (get_h225_addr(ct, *data, &taddr[i], &addr, &port)) {
 			if (addr.ip == ct->tuplehash[dir].tuple.src.u3.ip &&
@@ -222,13 +227,24 @@ static int nat_rtp_rtcp(struct sk_buff *skb, struct nf_conn *ct,
 	/* Try to get a pair of ports. */
 	for (nated_port = ntohs(rtp_exp->tuple.dst.u.udp.port);
 	     nated_port != 0; nated_port += 2) {
+		int ret;
+
 		rtp_exp->tuple.dst.u.udp.port = htons(nated_port);
-		if (nf_ct_expect_related(rtp_exp) == 0) {
+		ret = nf_ct_expect_related(rtp_exp);
+		if (ret == 0) {
 			rtcp_exp->tuple.dst.u.udp.port =
 			    htons(nated_port + 1);
-			if (nf_ct_expect_related(rtcp_exp) == 0)
+			ret = nf_ct_expect_related(rtcp_exp);
+			if (ret == 0)
 				break;
-			nf_ct_unexpect_related(rtp_exp);
+			else if (ret != -EBUSY) {
+				nf_ct_unexpect_related(rtp_exp);
+				nated_port = 0;
+				break;
+			}
+		} else if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
 		}
 	}
 
@@ -284,9 +300,16 @@ static int nat_t120(struct sk_buff *skb, struct nf_conn *ct,
 
 	/* Try to get same port: if not, try to change it. */
 	for (; nated_port != 0; nated_port++) {
+		int ret;
+
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		else if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
@@ -323,6 +346,11 @@ static int nat_h245(struct sk_buff *skb, struct nf_conn *ct,
 	int dir = CTINFO2DIR(ctinfo);
 	u_int16_t nated_port = ntohs(port);
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	/* Set expectations for NAT */
 	exp->saved_proto.tcp.port = exp->tuple.dst.u.tcp.port;
 	exp->expectfn = nf_nat_follow_master;
@@ -334,9 +362,16 @@ static int nat_h245(struct sk_buff *skb, struct nf_conn *ct,
 
 	/* Try to get same port: if not, try to change it. */
 	for (; nated_port != 0; nated_port++) {
+		int ret;
+
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		else if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
@@ -407,6 +442,11 @@ static int nat_q931(struct sk_buff *skb, struct nf_conn *ct,
 	u_int16_t nated_port = ntohs(port);
 	union nf_inet_addr addr;
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	/* Set expectations for NAT */
 	exp->saved_proto.tcp.port = exp->tuple.dst.u.tcp.port;
 	exp->expectfn = ip_nat_q931_expect;
@@ -418,9 +458,16 @@ static int nat_q931(struct sk_buff *skb, struct nf_conn *ct,
 
 	/* Try to get same port: if not, try to change it. */
 	for (; nated_port != 0; nated_port++) {
+		int ret;
+
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		else if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */
@@ -500,9 +547,16 @@ static int nat_callforwarding(struct sk_buff *skb, struct nf_conn *ct,
 
 	/* Try to get same port: if not, try to change it. */
 	for (nated_port = ntohs(port); nated_port != 0; nated_port++) {
+		int ret;
+
 		exp->tuple.dst.u.tcp.port = htons(nated_port);
-		if (nf_ct_expect_related(exp) == 0)
+		ret = nf_ct_expect_related(exp);
+		if (ret == 0)
 			break;
+		else if (ret != -EBUSY) {
+			nated_port = 0;
+			break;
+		}
 	}
 
 	if (nated_port == 0) {	/* No port available */

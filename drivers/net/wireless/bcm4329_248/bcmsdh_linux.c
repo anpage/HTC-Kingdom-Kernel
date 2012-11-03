@@ -58,6 +58,9 @@ extern void dhdsdio_isr(void * args);
 #endif /* KERNEL_VERSION(2, 6, 19) */
 #endif /* CONFIG_MACH_SANDGATE2G || CONFIG_MACH_LOGICPD_PXA270 */
 
+//kernel 3.0
+#define set_irq_wake(irq, on) irq_set_irq_wake(irq, on)
+
 /**
  * SDIO Host Controller info
  */

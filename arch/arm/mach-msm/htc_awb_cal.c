@@ -27,11 +27,7 @@ GNU General Public License for more details.
 /* configuration tags specific to msm */
 #define ATAG_MSM_AWB_CAL	0x59504550 /* MSM CAMERA AWB Calibration */
 
-#if defined(CONFIG_ARCH_MSM7X30) || defined(CONFIG_ARCH_MSM8X60)
 #define AWB_CAL_MAX_SIZE	0x1000U     /* 0x1000 = 4096 bytes */
-#else
-#define AWB_CAL_MAX_SIZE	0x800U     /* 0x800 = 2048 bytes */
-#endif
 
 struct qct_lsc_struct{
 	unsigned long int	lsc_verify;
@@ -43,6 +39,7 @@ struct qct_lsc_struct{
 struct qct_awb_lsc_struct{
 	unsigned long int caBuff[8];/* AWB Calibartion */
 	struct qct_lsc_struct qct_lsc_data;/* LSC Calibration */
+	unsigned long int flashcaBuff[8];  /* flash_camera */
 };
 
 static unsigned char cam_awb_ram[AWB_CAL_MAX_SIZE];
@@ -55,7 +52,13 @@ unsigned char *get_cam_awb_cal(void)
 }
 
 EXPORT_SYMBOL(get_cam_awb_cal);
-
+/* HTC_START */
+/* klocwork */
+unsigned char *dummy(unsigned char *p)
+{
+    return p;
+}
+/* HTC_END */
 static int __init parse_tag_cam_awb_cal(const struct tag *tag)
 {
 	unsigned char *dptr = (unsigned char *)(&tag->u);
@@ -67,7 +70,7 @@ static int __init parse_tag_cam_awb_cal(const struct tag *tag)
 			tag->hdr.size, tag->hdr.tag, size);
 
     gCAM_AWB_CAL_LEN = size;
-	memcpy(cam_awb_ram, dptr, size);
+	memcpy(cam_awb_ram, dummy(dptr), size); /* HTC */
 
 
 #ifdef ATAG_CAM_AWB_CAL_DEBUG

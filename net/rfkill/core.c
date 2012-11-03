@@ -149,20 +149,6 @@ static void rfkill_led_trigger_activate(struct led_classdev *led)
 	rfkill_led_trigger_event(rfkill);
 }
 
-const char *rfkill_get_led_trigger_name(struct rfkill *rfkill)
-{
-	return rfkill->led_trigger.name;
-}
-EXPORT_SYMBOL(rfkill_get_led_trigger_name);
-
-void rfkill_set_led_trigger_name(struct rfkill *rfkill, const char *name)
-{
-	BUG_ON(!rfkill);
-
-	rfkill->ledtrigname = name;
-}
-EXPORT_SYMBOL(rfkill_set_led_trigger_name);
-
 static int rfkill_led_trigger_register(struct rfkill *rfkill)
 {
 	rfkill->led_trigger.name = rfkill->ledtrigname
@@ -593,8 +579,6 @@ static const char *rfkill_get_type_str(enum rfkill_type type)
 		return "wimax";
 	case RFKILL_TYPE_WWAN:
 		return "wwan";
-	case RFKILL_TYPE_FMTX:
-		return "fmtx";
 	case RFKILL_TYPE_GPS:
 		return "gps";
 	case RFKILL_TYPE_FM:
@@ -799,15 +783,17 @@ EXPORT_SYMBOL(rfkill_resume_polling);
 
 static int rfkill_suspend(struct device *dev, pm_message_t state)
 {
+#if 0
 	struct rfkill *rfkill = to_rfkill(dev);
 
 	rfkill_pause_polling(rfkill);
-
+#endif
 	return 0;
 }
 
 static int rfkill_resume(struct device *dev)
 {
+#if 0
 	struct rfkill *rfkill = to_rfkill(dev);
 	bool cur;
 
@@ -817,7 +803,7 @@ static int rfkill_resume(struct device *dev)
 	}
 
 	rfkill_resume_polling(rfkill);
-
+#endif
 	return 0;
 }
 #endif
@@ -1044,7 +1030,6 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
 	 * start getting events from elsewhere but hold mtx to get
 	 * startup events added first
 	 */
-	list_add(&data->list, &rfkill_fds);
 
 	list_for_each_entry(rfkill, &rfkill_list, node) {
 		ev = kzalloc(sizeof(*ev), GFP_KERNEL);
@@ -1053,6 +1038,7 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
 		rfkill_fill_event(&ev->ev, rfkill, RFKILL_OP_ADD);
 		list_add_tail(&ev->list, &data->events);
 	}
+	list_add(&data->list, &rfkill_fds);
 	mutex_unlock(&data->mtx);
 	mutex_unlock(&rfkill_global_mutex);
 
@@ -1247,6 +1233,7 @@ static const struct file_operations rfkill_fops = {
 	.unlocked_ioctl	= rfkill_fop_ioctl,
 	.compat_ioctl	= rfkill_fop_ioctl,
 #endif
+	.llseek		= no_llseek,
 };
 
 static struct miscdevice rfkill_miscdev = {

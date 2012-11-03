@@ -1,29 +1,13 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 #ifndef VIDC_H
@@ -1990,7 +1974,7 @@ do { \
 	(VIDC_720P_WRAPPER_REG_BASE      + 0x00000ebc)
 #define VIDC_REG_441270_PHYS                    \
 	(VIDC_720P_WRAPPER_REG_BASE_PHYS + 0x00000ebc)
-#define VIDC_REG_441270_RMSK                           0xf
+#define VIDC_REG_441270_RMSK                          0x1f
 #define VIDC_REG_441270_SHFT                             0
 #define VIDC_REG_441270_IN                      \
 	in_dword_masked(VIDC_REG_441270_ADDR,  \
@@ -2000,7 +1984,7 @@ do { \
 #define VIDC_REG_441270_DATA_PARTITIONED_BMSK 0x8
 #define VIDC_REG_441270_DATA_PARTITIONED_SHFT 0x3
 
-#define VIDC_REG_441270_FRAME_TYPE_BMSK                0x7
+#define VIDC_REG_441270_FRAME_TYPE_BMSK               0x17
 #define VIDC_REG_441270_FRAME_TYPE_SHFT                  0
 
 #define VIDC_REG_724381_ADDR        \
@@ -2193,6 +2177,7 @@ VIDC_REG_1137_METADATA_DISPLAY_INDEX_SHFT          0
 #define VIDC_720P_PROFILE_H264_BASELINE 0
 #define VIDC_720P_PROFILE_H264_MAIN     1
 #define VIDC_720P_PROFILE_H264_HIGH     2
+#define VIDC_720P_PROFILE_H264_CPB      3
 #define VIDC_720P_PROFILE_H263_BASELINE 0
 
 #define VIDC_720P_PROFILE_VC1_SP        0
@@ -2299,7 +2284,8 @@ enum vidc_720p_frame {
 	VIDC_720P_NOTCODED = 0,
 	VIDC_720P_IFRAME = 1,
 	VIDC_720P_PFRAME = 2,
-	VIDC_720P_BFRAME = 3
+	VIDC_720P_BFRAME = 3,
+	VIDC_720P_IDRFRAME = 4
 };
 
 enum vidc_720p_entropy_sel {
@@ -2556,18 +2542,26 @@ void vidc_720p_decode_setpassthrough_start(u32 pass_startaddr);
 #define DDL_720P_REG_BASE VIDC_720P_WRAPPER_REG_BASE
 #define VIDC_BUSY_WAIT(n) udelay(n)
 
-#undef VIDC_REGISTER_LOG_MSG
 #undef VIDC_REGISTER_LOG_INTO_BUFFER
 
-#ifdef VIDC_REGISTER_LOG_MSG
-#define VIDC_MSG1(msg_format, a) printk(KERN_INFO msg_format, a)
-#define VIDC_MSG2(msg_format, a, b) printk(KERN_INFO msg_format, a, b)
-#define VIDC_MSG3(msg_format, a, b, c) printk(KERN_INFO msg_format, a, b, c)
-#else
-#define VIDC_MSG1(msg_format, a)
-#define VIDC_MSG2(msg_format, a, b)
-#define VIDC_MSG3(msg_format, a, b, c)
-#endif
+#undef VIDC_REGISTER_LOG_INTO_BUFFER
+/*HTC_START*/
+extern u32 vidc_msg_register;
+#define VIDC_MSG1(msg_format, a)			\
+	if (vidc_msg_register) {			\
+		printk(KERN_INFO msg_format, a);	\
+	}
+
+#define VIDC_MSG2(msg_format, a, b)			\
+	if (vidc_msg_register) {			\
+		printk(KERN_INFO msg_format, a, b);	\
+	}
+
+#define VIDC_MSG3(msg_format, a, b, c)			\
+	if (vidc_msg_register) {			\
+		printk(KERN_INFO msg_format, a, b, c);	\
+	}
+/*HTC_END*/
 
 #ifdef VIDC_REGISTER_LOG_INTO_BUFFER
 
@@ -2655,25 +2649,25 @@ void vidcput_debug_reglog(void);
 #define VIDC_LOGERR_STRING(str) \
 do { \
 	VIDC_STR_LOGBUFFER(str); \
-	VIDC_MSG1("\n[VID] <%s>", str); \
+	VIDC_MSG1("\n<%s>", str); \
 } while (0)
 
 #define VIDC_LOG_STRING(str) \
 do { \
 	VIDC_STR_LOGBUFFER(str); \
-	VIDC_MSG1("\n[VID] <%s>", str); \
+	VIDC_MSG1("\n<%s>", str); \
 } while (0)
 
 #define VIDC_LOG1(str, arg1) \
 do { \
 	VIDC_LONG_LOGBUFFER(str, arg1); \
-	VIDC_MSG2("\n[VID] <%s=0x%08x>", str, arg1); \
+	VIDC_MSG2("\n<%s=0x%08x>", str, arg1); \
 } while (0)
 
 #define VIDC_IO_OUT(reg,  val) \
 do { \
 	VIDC_LOG_WRITE(reg, (u32)val);  \
-	VIDC_MSG2("\n[VID] (0x%08x:"#reg"=0x%08x)",  \
+	VIDC_MSG2("\n(0x%08x:"#reg"=0x%08x)",  \
 	(u32)(VIDC_##reg##_ADDR - DDL_720P_REG_BASE),  (u32)val); \
 	mb(); \
 	VIDC_720P_OUT(reg, val);  \
@@ -2682,7 +2676,7 @@ do { \
 #define VIDC_IO_OUTI(reg,  index,  val) \
 do { \
 	VIDC_LOG_WRITEI(reg, index, (u32)val); \
-	VIDC_MSG2("\n[VID] (0x%08x:"#reg"=0x%08x)",  \
+	VIDC_MSG2("\n(0x%08x:"#reg"=0x%08x)",  \
 	(u32)(VIDC_##reg##_ADDR(index)-DDL_720P_REG_BASE),  (u32)val); \
 	mb(); \
 	VIDC_720P_OUTI(reg, index, val);  \
@@ -2691,7 +2685,7 @@ do { \
 #define VIDC_IO_OUTF(reg,  field,  val) \
 do { \
 	VIDC_LOG_WRITEF(reg, field, val); \
-	VIDC_MSG3("\n[VID] (0x%08x:"#reg":0x%x:=0x%08x)",  \
+	VIDC_MSG3("\n(0x%08x:"#reg":0x%x:=0x%08x)",  \
 	(u32)(VIDC_##reg##_ADDR - DDL_720P_REG_BASE),  \
 	VIDC_##reg##_##field##_BMSK,  (u32)val); \
 	mb(); \
@@ -2703,7 +2697,7 @@ do { \
 	mb(); \
 	*pval = (u32) VIDC_720P_IN(reg); \
 	VIDC_LOG_READ(reg, pval); \
-	VIDC_MSG2("\n[VID] (0x%08x:"#reg"==0x%08x)",  \
+	VIDC_MSG2("\n(0x%08x:"#reg"==0x%08x)",  \
 	(u32)(VIDC_##reg##_ADDR - DDL_720P_REG_BASE), (u32) *pval);  \
 } while (0)
 
@@ -2712,7 +2706,7 @@ do { \
 	mb(); \
 	*pval = VIDC_720P_INF(reg, mask); \
 	VIDC_LOG_READ(reg, pval); \
-	VIDC_MSG2("\n[VID] (0x%08x:"#reg"==0x%08x)",  \
+	VIDC_MSG2("\n(0x%08x:"#reg"==0x%08x)",  \
 	(u32)(VIDC_##reg##_ADDR - DDL_720P_REG_BASE),  *pval); \
 } while (0)
 

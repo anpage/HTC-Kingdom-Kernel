@@ -1,39 +1,15 @@
 /* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NON-INFRINGEMENT ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
-
-#if defined(CONFIG_ARCH_MSM7X30_LTE)
-#include <mach/7x30-lte/smem_log.h>
-#elif defined(CONFIG_ARCH_MSM8X60)
-#include <mach/smem_log-8x60.h>
-#endif
-
-#ifndef __ASM_ARCH_MSM_SMEM_LOG_H
-#define __ASM_ARCH_MSM_SMEM_LOG_H
 
 #include <linux/ioctl.h>
 #include <linux/types.h>
@@ -228,6 +204,7 @@
 #define RPC_ROUTER_LOG_EVENT_MID_WRITTEN (SMEM_LOG_RPC_ROUTER_EVENT_BASE + 6)
 #define RPC_ROUTER_LOG_EVENT_MID_CFM_REQ (SMEM_LOG_RPC_ROUTER_EVENT_BASE + 7)
 
+#ifdef CONFIG_MSM_SMD_LOGGING
 void smem_log_event(uint32_t id, uint32_t data1, uint32_t data2,
 		    uint32_t data3);
 void smem_log_event6(uint32_t id, uint32_t data1, uint32_t data2,
@@ -238,4 +215,16 @@ void smem_log_event_to_static(uint32_t id, uint32_t data1, uint32_t data2,
 void smem_log_event6_to_static(uint32_t id, uint32_t data1, uint32_t data2,
 			       uint32_t data3, uint32_t data4, uint32_t data5,
 			       uint32_t data6);
+#else
+void smem_log_event(uint32_t id, uint32_t data1, uint32_t data2,
+		    uint32_t data3) { }
+void smem_log_event6(uint32_t id, uint32_t data1, uint32_t data2,
+		     uint32_t data3, uint32_t data4, uint32_t data5,
+		     uint32_t data6) { }
+void smem_log_event_to_static(uint32_t id, uint32_t data1, uint32_t data2,
+			      uint32_t data3) { }
+void smem_log_event6_to_static(uint32_t id, uint32_t data1, uint32_t data2,
+			       uint32_t data3, uint32_t data4, uint32_t data5,
+			       uint32_t data6) { }
 #endif
+

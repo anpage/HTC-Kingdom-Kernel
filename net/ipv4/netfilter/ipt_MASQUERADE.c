@@ -59,8 +59,13 @@ masquerade_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	ct = nf_ct_get(skb, &ctinfo);
 	nat = nfct_nat(ct);
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(nat) || (!nat))
+		printk(KERN_ERR "[NET] nat is NULL in %s!\n", __func__);
+#endif
+
 	NF_CT_ASSERT(ct && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
-			    ctinfo == IP_CT_RELATED + IP_CT_IS_REPLY));
+			    ctinfo == IP_CT_RELATED_REPLY));
 
 	/* Source address is 0.0.0.0 - locally generated packet that is
 	 * probably not supposed to be masqueraded.

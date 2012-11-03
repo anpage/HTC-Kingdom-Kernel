@@ -23,9 +23,9 @@
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 #include <linux/mfd/msm-adie-codec.h>
-#include <mach/qdsp5v2/snddev_icodec.h>
-#include <mach/qdsp5v2/audio_dev_ctl.h>
-#include <mach/qdsp5v2/audio_acdb.h>
+#include <mach/qdsp5v2_2x/snddev_icodec.h>
+#include <mach/qdsp5v2_2x/audio_dev_ctl.h>
+#include <mach/qdsp5v2_2x/audio_acdb.h>
 #include <mach/htc_headset_mgr.h>
 
 #include <mach/msm_smd.h>
@@ -34,7 +34,6 @@
 
 #include <mach/htc_acdb.h>
 #include <mach/htc_acoustic_7x30.h>
-#include "board-vision.h"
 
 #define ACOUSTIC_IOCTL_MAGIC 'p'
 #define ACOUSTIC_ADIE_SIZE	_IOW(ACOUSTIC_IOCTL_MAGIC, 15, size_t)
@@ -54,7 +53,9 @@
 #define ACOUSTIC_ENABLE_BACK_MIC	_IOW(ACOUSTIC_IOCTL_MAGIC, 34, unsigned)
 #define ACOUSTIC_UPDATE_AIC3254_INFO	_IOW(ACOUSTIC_IOCTL_MAGIC, 36, unsigned)
 #define ACOUSTIC_GET_RECEIVER_STATE		_IOW(ACOUSTIC_IOCTL_MAGIC, 37, int)
-
+#define ACOUSTIC_GET_BEATS_STATE	_IOW(ACOUSTIC_IOCTL_MAGIC, 41, unsigned)
+#define ACOUSTIC_ENABLE_BEATS		_IOW(ACOUSTIC_IOCTL_MAGIC, 42, unsigned)
+#define ACOUSTIC_GET_AIC3008_STATE	_IOW(ACOUSTIC_IOCTL_MAGIC, 43, unsigned)
 
 #define D(fmt, args...) printk(KERN_INFO "[AUD] htc-acoustic: "fmt, ##args)
 #define E(fmt, args...) printk(KERN_ERR "[AUD] htc-acoustic: "fmt, ##args)
@@ -74,7 +75,8 @@ struct audio_config_database *db;
 struct acdb_config temp;
 static struct mutex api_lock;
 static struct mutex rpc_connect_lock;
-static struct acoustic_ops *the_ops;
+static struct acoustic_ops default_acoustic_ops;
+static struct acoustic_ops * the_ops = &default_acoustic_ops;
 
 struct acdb_id {
 	u32 tx_dev_id;
@@ -168,10 +170,8 @@ acoustic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		}
 		D("setting size = %d\n", sz);
 
-		if (htc_adie_table) {
-			kfree(htc_adie_table);
-			htc_adie_table = NULL;
-		}
+		kfree(htc_adie_table);
+		htc_adie_table = NULL;
 
 		if (!htc_adie_table) {
 			/* allocate 4 pages for adie table*/
@@ -243,7 +243,7 @@ acoustic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				}
 			}
 			if (j >= setting_sz) {
-				E("can't find device with frequency %d\n",
+				D("can't find device with frequency %d\n",
 				  act_info.freq);
 				rc = -EFAULT;
 			}
@@ -389,8 +389,7 @@ acoustic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				E("acoustic_ioctl: ACOUSTIC_ACOUSTIC_GET_TABLES failed\n");
 				rc = -EFAULT;
 			}
-		}
-		else
+		} else
 			rc = -EFAULT;
 		break;
 	}
@@ -419,7 +418,7 @@ acoustic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case ACOUSTIC_GET_RECEIVER_STATE: {
 		int support_receiver = 1;
 		if (the_ops->support_receiver)
-			support_receiver= the_ops->support_receiver();
+			support_receiver = the_ops->support_receiver();
 		D("support_receiver: %d\n", support_receiver);
 		if (copy_to_user((void *) arg,
 			&support_receiver, sizeof(int))) {
@@ -428,7 +427,41 @@ acoustic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	}
-
+	case ACOUSTIC_GET_BEATS_STATE: {
+		int support_beats = 0;
+		if (the_ops->support_beats)
+			support_beats = the_ops->support_beats();
+		D("support_beats: %d\n", support_beats);
+		if (copy_to_user((void *) arg,
+			&support_beats, sizeof(int))) {
+			E("acoustic_ioctl: copy to user failed\n");
+			rc = -EFAULT;
+		}
+		break;
+	}
+	case ACOUSTIC_ENABLE_BEATS: {
+		int en = 0;
+		if (copy_from_user(&en, (void *)arg, sizeof(int))) {
+			rc = -EFAULT;
+			break;
+		}
+		D("Enable Beats : %d\n", en);
+		if (the_ops->enable_beats)
+			the_ops->enable_beats(en);
+		break;
+	}
+	case ACOUSTIC_GET_AIC3008_STATE: {
+		int support_aic3008 = 0;
+		if (the_ops->support_aic3008)
+			support_aic3008 = the_ops->support_aic3008();
+		D("support_aic3008: %d\n", support_aic3008);
+		if (copy_to_user((void *) arg,
+			&support_aic3008, sizeof(int))) {
+			E("acoustic_ioctl: copy to user failed\n");
+			rc = -EFAULT;
+		}
+		break;
+	}
 	default:
 		rc = -EINVAL;
 	}

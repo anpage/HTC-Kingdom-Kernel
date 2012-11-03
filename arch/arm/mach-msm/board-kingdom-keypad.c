@@ -1,6 +1,6 @@
-/* arch/arm/mach-msm/board-kingdom-keypad.c
+/* linux/arch/arm/mach-msm/board-kingdom-keypad.c
  *
- * Copyright (C) 2008 Google, Inc.
+ * Copyright (C) 2010-2011 HTC Corporation.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -10,7 +10,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
  */
 
 #include <linux/platform_device.h>
@@ -25,7 +24,6 @@
 #include "board-kingdom.h"
 #include "proc_comm.h"
 #include <linux/mfd/pmic8058.h>
-#include <linux/input/pmic8058-keypad.h>
 
 static char *keycaps = "--qwerty";
 #undef MODULE_PARAM_PREFIX
@@ -47,20 +45,25 @@ static struct gpio_event_direct_entry kingdom_keypad_input_map[] = {
 	},
 };
 
+uint32_t inputs_gpio_table[] = {
+	PCOM_GPIO_CFG(KINGDOM_GPIO_KEYPAD_POWER_KEY, 0, GPIO_INPUT,
+		      GPIO_PULL_UP, GPIO_4MA),
+};
+
 static void kingdom_setup_input_gpio(void)
 {
-	uint32_t inputs_gpio_table[] = {
-		PCOM_GPIO_CFG(KINGDOM_GPIO_KEYPAD_POWER_KEY, 0, GPIO_INPUT, GPIO_PULL_UP, GPIO_4MA),
-	};
-
-	config_gpio_table(inputs_gpio_table, ARRAY_SIZE(inputs_gpio_table));
+	gpio_tlmm_config(inputs_gpio_table[0], GPIO_CFG_ENABLE);
 }
 
 static struct gpio_event_input_info kingdom_keypad_input_info = {
 	.info.func = gpio_event_input_func,
 	.flags = GPIOEDF_PRINT_KEYS,
 	.type = EV_KEY,
-	.debounce_time.tv.nsec = 5 * NSEC_PER_MSEC,
+#if BITS_PER_LONG != 64 && !defined(CONFIG_KTIME_SCALAR)
+	.debounce_time.tv.nsec = 8 * NSEC_PER_MSEC,
+# else
+	.debounce_time.tv64 = 8 * NSEC_PER_MSEC,
+# endif
 	.keymap = kingdom_keypad_input_map,
 	.keymap_size = ARRAY_SIZE(kingdom_keypad_input_map),
 	.setup_input_gpio = kingdom_setup_input_gpio,
@@ -109,11 +112,10 @@ struct platform_device kingdom_reset_keys_device = {
 
 int __init kingdom_init_keypad(void)
 {
-	printk(KERN_DEBUG "%s\n",	__func__);
+	printk(KERN_DEBUG "%s\n", __func__);
 
 	if (platform_device_register(&kingdom_reset_keys_device))
 		printk(KERN_WARNING "%s: register reset key fail\n", __func__);
 
 	return platform_device_register(&kingdom_keypad_input_device);
 }
-

@@ -10,11 +10,6 @@
  *
  * CPUs are exported via sysfs in the class/cpu/devices/
  * directory. 
- *
- * Per-cpu interfaces can be implemented using a struct device_interface. 
- * See the following for how to do this: 
- * - drivers/base/intf.c 
- * - Documentation/driver-model/interface.txt
  */
 #ifndef _LINUX_CPU_H_
 #define _LINUX_CPU_H_
@@ -41,12 +36,41 @@ extern void cpu_remove_sysdev_attr_group(struct attribute_group *attrs);
 
 extern int sched_create_sysfs_power_savings_entries(struct sysdev_class *cls);
 
+extern int cpu_hotplug_disabled;
+
 #ifdef CONFIG_HOTPLUG_CPU
 extern void unregister_cpu(struct cpu *cpu);
 extern ssize_t arch_cpu_probe(const char *, size_t);
 extern ssize_t arch_cpu_release(const char *, size_t);
 #endif
 struct notifier_block;
+
+/*
+ * CPU notifier priorities.
+ */
+enum {
+	/*
+	 * SCHED_ACTIVE marks a cpu which is coming up active during
+	 * CPU_ONLINE and CPU_DOWN_FAILED and must be the first
+	 * notifier.  CPUSET_ACTIVE adjusts cpuset according to
+	 * cpu_active mask right after SCHED_ACTIVE.  During
+	 * CPU_DOWN_PREPARE, SCHED_INACTIVE and CPUSET_INACTIVE are
+	 * ordered in the similar way.
+	 *
+	 * This ordering guarantees consistent cpu_active mask and
+	 * migration behavior to all cpu notifiers.
+	 */
+	CPU_PRI_SCHED_ACTIVE	= INT_MAX,
+	CPU_PRI_CPUSET_ACTIVE	= INT_MAX - 1,
+	CPU_PRI_SCHED_INACTIVE	= INT_MIN + 1,
+	CPU_PRI_CPUSET_INACTIVE	= INT_MIN,
+
+	/* migration should happen before other stuff but after perf */
+	CPU_PRI_PERF		= 20,
+	CPU_PRI_MIGRATION	= 10,
+	/* prepare workqueues for other notifiers */
+	CPU_PRI_WORKQUEUE	= 5,
+};
 
 #ifdef CONFIG_SMP
 /* Need to know about CPUs going up/down? */
@@ -112,6 +136,7 @@ extern struct sysdev_class cpu_sysdev_class;
 
 extern void get_online_cpus(void);
 extern void put_online_cpus(void);
+extern bool cpu_hotplug_inprogress(void);
 #define hotcpu_notifier(fn, pri)	cpu_notifier(fn, pri)
 #define register_hotcpu_notifier(nb)	register_cpu_notifier(nb)
 #define unregister_hotcpu_notifier(nb)	unregister_cpu_notifier(nb)
@@ -151,5 +176,12 @@ extern void enable_nonboot_cpus(void);
 static inline int disable_nonboot_cpus(void) { return 0; }
 static inline void enable_nonboot_cpus(void) {}
 #endif /* !CONFIG_PM_SLEEP_SMP */
+
+#define IDLE_START 1
+#define IDLE_END 2
+
+void idle_notifier_register(struct notifier_block *n);
+void idle_notifier_unregister(struct notifier_block *n);
+void idle_notifier_call_chain(unsigned long val);
 
 #endif /* _LINUX_CPU_H_ */

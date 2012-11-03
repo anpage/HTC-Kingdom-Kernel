@@ -29,7 +29,7 @@
 #include "sdio-fw.h"
 
 static u8 __sqn_per_file_dbg = 0;
-u8* __sqn_fw_per_file_dbg_addr(void)
+u8 *__sqn_fw_per_file_dbg_addr(void)
 {
 	return &__sqn_per_file_dbg;
 }
@@ -143,7 +143,7 @@ out:
 }
 
 
-// Fix big buffer allocation problem during Firmware loading
+/* Fix big buffer allocation problem during Firmware loading */
 /**
  *	sqn_alloc_big_buffer - tries to alloc a big buffer with kmalloc
  *	@buf: pointer to buffer
@@ -164,7 +164,7 @@ out:
 static size_t sqn_alloc_big_buffer(u8 **buf, size_t size, gfp_t gfp_flags)
 {
 	size_t	real_size = size;
-	// int	retries   = 6;
+	/* int	retries   = 6; */
        int	retries   = 3;
 
 	sqn_pr_enter();
@@ -173,7 +173,7 @@ static size_t sqn_alloc_big_buffer(u8 **buf, size_t size, gfp_t gfp_flags)
 			, buf_size, aln_size, size, pad_size);er of requested size, if it failes try to
 	 * allocate a twice smaller buffer. Repeat this <retries> number of
 	 * times. */
-/*
+	/*
 	do
 	{
 		*buf = kmalloc(real_size, gfp_flags);
@@ -181,40 +181,39 @@ static size_t sqn_alloc_big_buffer(u8 **buf, size_t size, gfp_t gfp_flags)
 		//sqn_pr_info("%s: kmalloc %d in %u trial:%d\n", __func__, real_size,**buf,retries);
 
 		if (!(*buf)) {
-            printk("%s: kmalloc %d failed, trial:%d\n", __func__, real_size, retries); 
+			printk("%s: kmalloc %d failed, trial:%d\n", __func__, real_size, retries);
 			// real_size /= 2;
-            real_size /= 4;
+			real_size /= 4;
 			// adjust the size to be a multiple of 4
 			real_size += real_size % 4 ? 4 - real_size % 4 : 0;
 		}
 	} while (retries-- > 0 && !(*buf));
    */
 
-	// If all retries failed, then allocate 4KB buffer
+	/* If all retries failed, then allocate 4KB buffer */
 	if (!(*buf)) {
 		real_size = 8 * 1024;
 		if (size >= real_size) {
 			*buf = kmalloc(real_size, gfp_flags);
-			//printk("%s: kmalloc %d in %u\n", __func__, real_size, **buf);
-			//sqn_pr_info("%s: kmalloc %d in %u\n", __func__, real_size,**buf);
+			/* printk("%s: kmalloc %d in %u\n", __func__, real_size, **buf);
+				sqn_pr_info("%s: kmalloc %d in %u\n", __func__, real_size,**buf);
 
-			// If it also failed, then just return 0, indicating
-			// that we failed to alloc buffer
+				If it also failed, then just return 0, indicating
+				that we failed to alloc buffer */
 			if (!(*buf))
 				real_size = 0;
 		} else {
-			// We should _not_ return buffer bigger than requested
-			// real_size = 0;
+			/* We should _not_ return buffer bigger than requested
+				real_size = 0;
 
-			//printk("%s: We should _not_ return buffer bigger than requested size:%d real_size:%d\n", __func__, size, real_size);
+				printk("%s: We should _not_ return buffer bigger than requested size:%d real_size:%d\n", __func__, size, real_size);*/
 			*buf = kmalloc(size, gfp_flags);
 			real_size = size;
 		}
 	}
 
-	if (!(*buf)) {
-		printk("%s: kmalloc failed!!!\n", __func__);
-	}
+	if (!(*buf))
+		printk(KERN_WARN, "%s: kmalloc failed!!!\n", __func__);
 
 	sqn_pr_leave();
 
@@ -288,10 +287,9 @@ static int sqn_write_data(struct sdio_func *func, u32 addr, const void *data
 
 	sqn_pr_enter();
 	sdio_claim_host(func);
-	//printk("%s: size %d access_size %d\n", __func__, size,access_size);
+	/* printk("%s: size %d access_size %d\n", __func__, size,access_size); */
 	if (sqn_is_good_ahb_address(addr, sqn_card->version)
-		&& 0 == (size % 4) )
-	{
+		&& 0 == (size % 4)) {
 		/* write data using AHB */
 		u8 *buf = 0;
 		size_t buf_size = 0;
@@ -301,7 +299,7 @@ static int sqn_write_data(struct sdio_func *func, u32 addr, const void *data
 		u8 *read_data  = 0;
 #endif
 
-		//printk("write data using AHB with small kmalloc\n");
+		/* printk("write data using AHB with small kmalloc\n"); */
 		sdio_writel(func, addr, SQN_SDIO_ADA_ADDR, &rv);
 		if (rv) {
 			sqn_pr_dbg("can't set SQN_SDIO_ADA_ADDR register\n");
@@ -311,7 +309,7 @@ static int sqn_write_data(struct sdio_func *func, u32 addr, const void *data
 
 		written_size = 0;
 		buf_size = sqn_alloc_big_buffer(&buf, size, GFP_KERNEL | GFP_DMA);
-		//printk("%s: buf_size %d size%d\n", __func__, buf_size,size); 
+		/* printk("%s: buf_size %d size%d\n", __func__, buf_size,size); */
 		if (!buf) {
 			sqn_pr_err("failed to allocate buffer of %u bytes\n", size);
 			goto out;
@@ -375,10 +373,8 @@ static int sqn_write_data(struct sdio_func *func, u32 addr, const void *data
 		kfree(read_data);
 #endif /* DEBUG */
 		/* ******** only for debugging ******** */
-	}
-	else if (sqn_is_good_ahb_address(addr, sqn_card->version)
-		&& 0 != (size % 4) )
-	{
+	} else if (sqn_is_good_ahb_address(addr, sqn_card->version)
+		&& 0 != (size % 4)) {
 		/* write data using AHB */
 		/*
 		 * In firmware, target AHB address may not be 4 byte aligned so
@@ -395,11 +391,11 @@ static int sqn_write_data(struct sdio_func *func, u32 addr, const void *data
 		 */
 		u8 aln_size = addr % 4;
 		/* Also we need to pad AHB data size to be a multiple of 4 */
-		u8 pad_size = (size + aln_size) % 4 ? 4 - (size + aln_size)% 4 : 0;
+		u8 pad_size = (size + aln_size) % 4 ? 4 - (size + aln_size) % 4 : 0;
 		u32 buf_size = aln_size + size + pad_size;
 		u8 *buf = 0;
 
-		//printk("write data using AHB normal\n");
+		/* printk("write data using AHB normal\n"); */
 		sqn_pr_dbg("AHB: buf_size=%u [aln=%u size=%u pad=%u]\n"
 			, buf_size, aln_size, size, pad_size);
 
@@ -454,18 +450,18 @@ if (0) {
 		kfree(buf);
 	} else if (4 == access_size && size >= 4) {
 		/* write data using CMD53 */
-		printk("%s: write data using CMD53\n", __func__);
+		printk(KERN_WARN, "%s: write data using CMD53\n", __func__);
 		sqn_pr_dbg("write data using CMD53: addr 0x%x, size %u\n"
 			, addr, size);
-		rv = sdio_memcpy_toio(func, addr, (void*)data , size);
+		rv = sdio_memcpy_toio(func, addr, (void *)data , size);
 	} else {
 		/* write data using CMD52 */
 		int i = 0;
-		printk("%s: write data using CMD52\n", __func__);
+		printk(KERN_WARN, "%s: write data using CMD52\n", __func__);
 		sqn_pr_dbg("write data using CMD52: addr 0x%x, size %u\n"
 			, addr, size);
 		for (i = 0; i < size; ++i) {
-			sdio_writeb(func, *((u8*)data + i), addr + i, &rv);
+			sdio_writeb(func, *((u8 *)data + i), addr + i, &rv);
 			if (rv) {
 				sqn_pr_dbg("failed to write 1 byte to 0x%x addr"
 					" using CMD52\n", addr + i);
@@ -481,7 +477,7 @@ out:
 
 
 static int sqn_handle_memcpy_tag(struct sdio_func *func
-	, const struct sqn_tag_memcpy * mcpy_tag_const)
+	, const struct sqn_tag_memcpy *mcpy_tag_const)
 {
 	int rv = 0;
 	struct sqn_tag_memcpy mcpy_tag = { 0 };
@@ -512,7 +508,7 @@ static int sqn_handle_memcpy_tag(struct sdio_func *func
 
 
 static int sqn_handle_memset_tag(struct sdio_func *func
-	, const struct sqn_tag_memset * mset_tag_const)
+	, const struct sqn_tag_memset *mset_tag_const)
 {
 	int rv = 0;
 	struct sqn_tag_memset mset_tag = { 0 };
@@ -565,15 +561,14 @@ static int sqn_char_to_int(u8 c)
 {
 	int rv = 0;
 
-	if ('0' <= c && c <= '9') {
+	if ('0' <= c && c <= '9')
 		rv = c - '0';
-	} else if ('a' <= c && c <= 'f') {
+	else if ('a' <= c && c <= 'f')
 		rv = c - 'a' + 0xA;
-	} else if ('A' <= c && c <= 'F') {
+	else if ('A' <= c && c <= 'F')
 		rv = c - 'A' + 0xA;
-	} else {
+	else
 		rv = -1;
-	}
 
 	return rv;
 }
@@ -598,12 +593,11 @@ static int sqn_get_mac_addr_from_str(const u8 *data, u32 length, u8 *result)
 	 * 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 	 */
 
-	if ( !( ( ':' == data[2] || '-' == data[2])
-		&& ( ':' == data[5] || '-' == data[5])
-		&& ( ':' == data[8] || '-' == data[8])
-		&& ( ':' == data[11] || '-' == data[11])
-		&& ( ':' == data[14] || '-' == data[14]) ))
-	{
+	if (!((':' == data[2] || '-' == data[2])
+		&& (':' == data[5] || '-' == data[5])
+		&& (':' == data[8] || '-' == data[8])
+		&& (':' == data[11] || '-' == data[11])
+		&& (':' == data[14] || '-' == data[14]))) {
 		sqn_pr_err("can't get mac address from firmware"
 			" - incorrect mac address\n");
 		rv = -1;
@@ -614,10 +608,9 @@ static int sqn_get_mac_addr_from_str(const u8 *data, u32 length, u8 *result)
 	while (i < length) {
 		int high = 0;
 		int low = 0;
-
-		if ((high = sqn_char_to_int(data[i])) >= 0
-			&& (low = sqn_char_to_int(data[i + 1])) >= 0)
-		{
+		high = sqn_char_to_int(data[i]);
+		low = sqn_char_to_int(data[i + 1]);
+		if (high >= 0 && low >= 0) {
 			result[i/3] = low;
 			result[i/3] |= high << 4;
 		} else {
@@ -665,17 +658,16 @@ static int sqn_handle_mac_addr_tag(struct sdio_func *func, const u8 *data, u32 l
 	 */
 
 	if (MAC_ADDR_STRING_LEN <= length
-		&& length < 2 * MAC_ADDR_STRING_LEN + 1)
-	{
+		&& length < 2 * MAC_ADDR_STRING_LEN + 1) {
 		sqn_pr_dbg("single mac address\n");
 		/* we have only one mac addr */
 		sqn_get_mac_addr_from_str(data, length, priv->mac_addr);
 
-		// Andrew 0720
-		// ++(priv->mac_addr[ETH_ALEN - 1])
-		// real MAC: 38:E6:D8:86:00:00 
-		// hboot will store: 38:E6:D8:85:FF:FF (minus 1)
-		// sdio need to recovery it by plusing 1: 38:E6:D8:86:00:00 (plus 1)
+			/* Andrew 0720
+			++(priv->mac_addr[ETH_ALEN - 1])
+			real MAC: 38:E6:D8:86:00:00
+			hboot will store: 38:E6:D8:85:FF:FF (minus 1)
+			sdio need to recovery it by plusing 1: 38:E6:D8:86:00:00 (plus 1) */
 
 		if ((++(priv->mac_addr[ETH_ALEN - 1])) == 0x00)
 			if ((++(priv->mac_addr[ETH_ALEN - 2])) == 0x00)
@@ -684,13 +676,11 @@ static int sqn_handle_mac_addr_tag(struct sdio_func *func, const u8 *data, u32 l
 						if ((++(priv->mac_addr[ETH_ALEN - 5])) == 0x00)
 							++(priv->mac_addr[ETH_ALEN - 6]);
 
-	}
-	else if (2 * MAC_ADDR_STRING_LEN + 1 == length) { /* we have two macs */
+	} else if (2 * MAC_ADDR_STRING_LEN + 1 == length) { /* we have two macs */
 		sqn_pr_dbg("two mac addresses, using second\n");
 		sqn_get_mac_addr_from_str(data + MAC_ADDR_STRING_LEN + 1
 			, length - (MAC_ADDR_STRING_LEN + 1), priv->mac_addr);
-	}
-	else { /* incorrect data length */
+	} else { /* incorrect data length */
 		sqn_pr_err("can't get mac address from bootloader"
 			" - incorrect mac address length\n");
 		rv = -1;
@@ -719,7 +709,7 @@ out:
  */
 static int sqn_parse_and_load_tlv_data(struct sdio_func *func, const u8 *data, int size)
 {
-	const struct sqn_tlv *tlv_const = (const struct sqn_tlv*) data;
+	const struct sqn_tlv *tlv_const = (const struct sqn_tlv *) data;
 	struct sqn_tlv tlv = { 0 };
 	int rv = 0;
 
@@ -763,7 +753,7 @@ static int sqn_parse_and_load_tlv_data(struct sdio_func *func, const u8 *data, i
 			if (0 == tlv.length)
 				tlv.length = size - sizeof(*tlv_const);
 
-			rv = sqn_parse_and_load_tlv_data(func, (u8*) tlv_const->value
+			rv = sqn_parse_and_load_tlv_data(func, (u8 *) tlv_const->value
 				, tlv.length);
 			if (rv)
 				goto out;
@@ -775,7 +765,7 @@ static int sqn_parse_and_load_tlv_data(struct sdio_func *func, const u8 *data, i
 					, tlv.length);
 			/* sqn_pr_dbg_dump("|", tlv_const->value, tlv.length); */
 			rv = sqn_handle_memcpy_tag(func
-				, (struct sqn_tag_memcpy*) tlv_const->value);
+				, (struct sqn_tag_memcpy *) tlv_const->value);
 			if (rv)
 				goto out;
 			break;
@@ -786,7 +776,7 @@ static int sqn_parse_and_load_tlv_data(struct sdio_func *func, const u8 *data, i
 					, tlv.length);
 			/* sqn_pr_dbg_dump("|", tlv_const->value, tlv.length); */
 			rv = sqn_handle_memset_tag(func
-				, (struct sqn_tag_memset*) tlv_const->value);
+				, (struct sqn_tag_memset *) tlv_const->value);
 			if (rv)
 				goto out;
 			break;
@@ -816,7 +806,7 @@ static int sqn_parse_and_load_tlv_data(struct sdio_func *func, const u8 *data, i
 		 * sqn_tlv struct and decrement size accordingly
 		 */
 		size = (int)(size - (sizeof(*tlv_const) + tlv.length));
-		tlv_const = (const struct sqn_tlv*) ((const u8*)tlv_const + sizeof(*tlv_const) + tlv.length);
+		tlv_const = (const struct sqn_tlv *) ((const u8 *)tlv_const + sizeof(*tlv_const) + tlv.length);
 		sqn_pr_dbg("next tag: tlv %p size %d\n", tlv_const, size);
 	}
 
@@ -843,8 +833,8 @@ static int sqn_load_bootrom(struct sdio_func *func)
 	sqn_pr_enter();
 
 	sqn_pr_info("trying to find bootrom image: '%s'\n", bootrom_name);
-
-	if ((rv = request_firmware(&fw, bootrom_name, &func->dev)))
+	rv = request_firmware(&fw, bootrom_name, &func->dev);
+	if (rv)
 		goto out;
 
 	if (SQN_1130 == sqn_card->version) {
@@ -887,8 +877,8 @@ static int sqn_load_startup_script(struct sdio_func *func)
 	sqn_pr_enter();
 
 	sqn_pr_info("trying to find startup script: '%s'\n", bootrom_name);
-
-	if ((rv = request_firmware(&fw, bootrom_name, &func->dev)))
+	rv = request_firmware(&fw, bootrom_name, &func->dev);
+	if (rv)
 		goto out;
 
 	sqn_pr_info("loading startup script (size %u) to the card...\n", fw->size);
@@ -922,8 +912,8 @@ static int sqn_load_fw(struct sdio_func *func)
 	fp = filp_open(firmware_name, O_RDONLY, 0);
 	if (IS_ERR(fp)) {
 		sqn_pr_err("failed to open firmware file '%s'\n", firmware_name);
-// APP FW open recovery mechanism +
-// If load link file /data/wimax/default.fw failed, try to load /data/wimax/app_default.fw directly.
+/* APP FW open recovery mechanism +
+	If load link file /data/wimax/default.fw failed, try to load /data/wimax/app_default.fw directly.*/
 		sqn_pr_info("trying to open firmware image: '%s'\n", firmware_name_recovery);
 		fp = filp_open(firmware_name_recovery, O_RDONLY, 0);
 		if (IS_ERR(fp)) {
@@ -932,9 +922,9 @@ static int sqn_load_fw(struct sdio_func *func)
 			goto out;
 		}
 
-		//rv = -1;
-		//goto out;
-// APP FW open recovery mechanism -
+		/* rv = -1;
+			goto out; */
+/* APP FW open recovery mechanism - */
 	}
 
 	/* cur_task = current; */
@@ -944,8 +934,7 @@ static int sqn_load_fw(struct sdio_func *func)
 	 * should be less than 20 MB in size */
 #define SQN_MAX_FW_SIZE		(20 * 1024 * 1024)
 	if (fw_size < sizeof(struct sqn_fw_header) + sizeof(struct sqn_tlv)
-		|| fw_size > SQN_MAX_FW_SIZE)
-	{
+		|| fw_size > SQN_MAX_FW_SIZE) {
 		sqn_pr_err("incorrect firmware size\n");
 		goto close_fp;
 	}
@@ -976,7 +965,7 @@ static int sqn_load_fw(struct sdio_func *func)
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	read_size = fp->f_op->read(fp, (char*) fw_data, fw_size, &fp->f_pos);
+	read_size = fp->f_op->read(fp, (char *) fw_data, fw_size, &fp->f_pos);
 	set_fs(old_fs);
 
 	if (read_size != fw_size) {
@@ -1101,8 +1090,8 @@ out:
 	sqn_pr_leave();
 	return status;
 }
- 
-// Fix big buffer allocation problem during Firmware loading
+
+/* Fix big buffer allocation problem during Firmware loading */
 /**
  *	sqn_alloc_big_buffer - tries to alloc a big buffer with kmalloc
  *	@buf: pointer to buffer
@@ -1116,15 +1105,15 @@ out:
  *	4KB, otherwise allocate nothing and return 0.
  *
  *  @return a real size of allocated buffer or 0 if allocation failed
- * 
+ *
  *   Normal: 3912*4kB 4833*8kB 0*16kB 0*32kB 0*64kB 0*128kB 0*256kB 0*512kB 0*1024kB 0*2048kB 0*4096kB = 54312kB
  */
 
 static size_t sqn_alloc_big_buffer(u8 **buf, size_t size, gfp_t gfp_flags)
 {
 	size_t	real_size = size;
-	// int	retries   = 6;
-    // int	retries   = 3;
+	/*	int	retries   = 6;
+		int	retries   = 3; */
 
 	sqn_pr_enter();
 
@@ -1135,38 +1124,37 @@ static size_t sqn_alloc_big_buffer(u8 **buf, size_t size, gfp_t gfp_flags)
 	do
 	{
 		*buf = kmalloc(real_size, gfp_flags);
-		printk("%s: kmalloc %d in %x trial:%d\n", __func__, real_size, *buf, retries); 
+		printk("%s: kmalloc %d in %x trial:%d\n", __func__, real_size, *buf, retries);
 
 		if (!(*buf)) {
-            printk("%s: kmalloc %d failed, trial:%d\n", __func__, real_size, retries); 
+			printk("%s: kmalloc %d failed, trial:%d\n", __func__, real_size, retries);
 			// real_size /= 2;
-            real_size /= 4;
+			real_size /= 4;
 			// adjust the size to be a multiple of 4
 			real_size += real_size % 4 ? 4 - real_size % 4 : 0;
 		}
 	} while (retries-- > 0 && !(*buf));
     */
 
-	// If all retries failed, then allocate 4KB buffer
+	/* If all retries failed, then allocate 4KB buffer */
 	if (!(*buf)) {
 		real_size = 8 * 1024;
 		if (size >= real_size) {
 			*buf = kmalloc(real_size, gfp_flags);
-			// printk("%s: kmalloc %d in %x\n", __func__, real_size, *buf); 
+			/* printk("%s: kmalloc %d in %x\n", __func__, real_size, *buf);
 
-			// If it also failed, then just return 0, indicating
-			// that we failed to alloc buffer
+			 If it also failed, then just return 0, indicating
+			 that we failed to alloc buffer */
 			if (!(*buf))
 				real_size = 0;
 		} else {
-			// We should _not_ return buffer bigger than requested
-			// real_size = 0;
-						
-			// printk("%s: We should _not_ return buffer bigger than requested size:%d real_size:%d\n", __func__, size, real_size); 
+			/* We should _not_ return buffer bigger than requested
+			 real_size = 0;
+			 printk("%s: We should _not_ return buffer bigger than requested size:%d real_size:%d\n", __func__, size, real_size); */
 			*buf = kmalloc(size, gfp_flags);
-			real_size = size;			
+			real_size = size;
 		}
-	} 
+	}
 
 	sqn_pr_leave();
 
@@ -1187,8 +1175,7 @@ static int write_data(struct sdio_func *func, u32 addr, void *data
 	sdio_claim_host(func);
 
 	if (is_good_ahb_address(addr, sqn_card->version)
-		&& 0 == (size % 4) && 4 == access_size)
-	{
+		&& 0 == (size % 4) && 4 == access_size) {
 		/* write data using AHB */
 		u8 *buf = 0;
 		size_t buf_size = 0;
@@ -1283,7 +1270,7 @@ static int write_data(struct sdio_func *func, u32 addr, void *data
 		int i = 0;
 		sqn_pr_dbg("write data using CMD52\n");
 		for (i = 0; i < size; ++i) {
-			sdio_writeb(func, *((u8*)data + i), addr + i, &rv);
+			sdio_writeb(func, *((u8 *)data + i), addr + i, &rv);
 			if (rv) {
 				sqn_pr_dbg("can't write 1 byte to %xh addr using CMD52\n"
 					, addr + i);
@@ -1300,7 +1287,7 @@ out:
 
 
 static int sqn_handle_memcpy_tag(struct sdio_func *func
-	, struct sqn_tag_memcpy * mcpy_tag)
+	, struct sqn_tag_memcpy *mcpy_tag)
 {
 	int rv = 0;
 
@@ -1330,7 +1317,7 @@ static int sqn_handle_memcpy_tag(struct sdio_func *func
 
 
 static int sqn_handle_memset_tag(struct sdio_func *func
-	, struct sqn_tag_memset * mset_tag)
+	, struct sqn_tag_memset *mset_tag)
 {
 	int rv = 0;
 	u8 *buf = 0;
@@ -1381,15 +1368,14 @@ static int char_to_int(u8 c)
 {
 	int rv = 0;
 
-	if ('0' <= c && c <= '9') {
+	if ('0' <= c && c <= '9')
 		rv = c - '0';
-	} else if ('a' <= c && c <= 'f') {
+	else if ('a' <= c && c <= 'f')
 		rv = c - 'a' + 0xA;
-	} else if ('A' <= c && c <= 'F') {
+	else if ('A' <= c && c <= 'F')
 		rv = c - 'A' + 0xA;
-	} else {
+	else
 		rv = -1;
-	}
 
 	return rv;
 }
@@ -1414,12 +1400,11 @@ static int get_mac_addr_from_str(u8 *data, u32 length, u8 *result)
 	 * 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 	 */
 
-	if ( !( ( ':' == data[2] || '-' == data[2])
-		&& ( ':' == data[5] || '-' == data[5])
-		&& ( ':' == data[8] || '-' == data[8])
-		&& ( ':' == data[11] || '-' == data[11])
-		&& ( ':' == data[14] || '-' == data[14]) ))
-	{
+	if (!((':' == data[2] || '-' == data[2])
+		&& (':' == data[5] || '-' == data[5])
+		&& (':' == data[8] || '-' == data[8])
+		&& (':' == data[11] || '-' == data[11])
+		&& (':' == data[14] || '-' == data[14]))) {
 		sqn_pr_err("can't get mac address from firmware"
 			" - incorrect mac address\n");
 		rv = -1;
@@ -1430,10 +1415,9 @@ static int get_mac_addr_from_str(u8 *data, u32 length, u8 *result)
 	while (i < length) {
 		int high = 0;
 		int low = 0;
-
-		if ((high = char_to_int(data[i])) >= 0
-			&& (low = char_to_int(data[i + 1])) >= 0)
-		{
+		high = char_to_int(data[i]);
+		if (high >= 0
+			&& (low = char_to_int(data[i + 1])) >= 0) {
 			result[i/3] = low;
 			result[i/3] |= high << 4;
 		} else {
@@ -1484,17 +1468,16 @@ static int sqn_handle_mac_addr_tag(struct sdio_func *func, u8 *data, u32 length)
 	 */
 
 	if (MAC_ADDR_STRING_LEN <= length
-		&& length < 2 * MAC_ADDR_STRING_LEN + 1)
-	{
+		&& length < 2 * MAC_ADDR_STRING_LEN + 1) {
 		sqn_pr_dbg("single mac address\n");
 		/* we have only one mac addr */
 		get_mac_addr_from_str(data, length, priv->mac_addr);
 
-		// Andrew 0720
-		// ++(priv->mac_addr[ETH_ALEN - 1])
-		// real MAC: 38:E6:D8:86:00:00 
-		// hboot will store: 38:E6:D8:85:FF:FF (minus 1)
-		// sdio need to recovery it by plusing 1: 38:E6:D8:86:00:00 (plus 1)
+		/* Andrew 0720
+		 ++(priv->mac_addr[ETH_ALEN - 1])
+		 real MAC: 38:E6:D8:86:00:00
+		 hboot will store: 38:E6:D8:85:FF:FF (minus 1)
+		 sdio need to recovery it by plusing 1: 38:E6:D8:86:00:00 (plus 1) */
 
 		if ((++(priv->mac_addr[ETH_ALEN - 1])) == 0x00)
 			if ((++(priv->mac_addr[ETH_ALEN - 2])) == 0x00)
@@ -1503,13 +1486,11 @@ static int sqn_handle_mac_addr_tag(struct sdio_func *func, u8 *data, u32 length)
 						if ((++(priv->mac_addr[ETH_ALEN - 5])) == 0x00)
 							++(priv->mac_addr[ETH_ALEN - 6]);
 
-	}
-	else if (2 * MAC_ADDR_STRING_LEN + 1 == length) { /* we have two macs */
+	} else if (2 * MAC_ADDR_STRING_LEN + 1 == length) { /* we have two macs */
 		sqn_pr_dbg("two mac addresses, using second\n");
 		get_mac_addr_from_str(data + MAC_ADDR_STRING_LEN + 1
 			, length - (MAC_ADDR_STRING_LEN + 1), priv->mac_addr);
-	}
-	else { /* incorrect data length */
+	} else { /* incorrect data length */
 		sqn_pr_err("can't get mac address from bootloader"
 			" - incorrect mac address length\n");
 		rv = -1;
@@ -1538,7 +1519,7 @@ out:
  */
 static int sqn_load_bootstrapper(struct sdio_func *func, u8 *data, int size)
 {
-	struct sqn_tlv *tlv = (struct sqn_tlv*) data;
+	struct sqn_tlv *tlv = (struct sqn_tlv *) data;
 	int rv = 0;
 
 	sqn_pr_enter();
@@ -1573,7 +1554,7 @@ static int sqn_load_bootstrapper(struct sdio_func *func, u8 *data, int size)
 			if (0 == tlv->length)
 				tlv->length = size - sizeof(*tlv);
 
-			rv = sqn_load_bootstrapper(func, (u8*) tlv->value
+			rv = sqn_load_bootstrapper(func, (u8 *) tlv->value
 				, tlv->length);
 			if (rv)
 				goto out;
@@ -1585,7 +1566,7 @@ static int sqn_load_bootstrapper(struct sdio_func *func, u8 *data, int size)
 					, tlv->length);
 			/* sqn_pr_dbg_dump("|", tlv->value, tlv->length); */
 			rv = sqn_handle_memcpy_tag(func
-				, (struct sqn_tag_memcpy*) tlv->value);
+				, (struct sqn_tag_memcpy *) tlv->value);
 			if (rv)
 				goto out;
 			break;
@@ -1596,7 +1577,7 @@ static int sqn_load_bootstrapper(struct sdio_func *func, u8 *data, int size)
 					, tlv->length);
 			/* sqn_pr_dbg_dump("|", tlv->value, tlv->length); */
 			rv = sqn_handle_memset_tag(func
-				, (struct sqn_tag_memset*) tlv->value);
+				, (struct sqn_tag_memset *) tlv->value);
 			if (rv)
 				goto out;
 			break;
@@ -1626,7 +1607,7 @@ static int sqn_load_bootstrapper(struct sdio_func *func, u8 *data, int size)
 		 * sqn_tlv struct and decrement size accordingly
 		 */
 		size = (int)(size - (sizeof(*tlv) + tlv->length));
-		tlv = (struct sqn_tlv*) ((u8*)tlv + sizeof(*tlv) + tlv->length);
+		tlv = (struct sqn_tlv *)((u8 *)tlv + sizeof(*tlv) + tlv->length);
 	}
 
 	if (0 != size) {
@@ -1640,9 +1621,6 @@ out:
 	return rv;
 }
 
-
-extern char *firmware_name;
-
 /** sqn_load_firmware - loads firmware to card
  *  @func: SDIO function, used to transfer data via SDIO interface,
  *         also used to obtain pointer to device structure.
@@ -1654,7 +1632,7 @@ int sqn_load_firmware(struct sdio_func *func)
 {
 	int rv = 0;
 	const struct firmware *fw = 0;
-//Create a local firmware_name with path to replace original global firmware_name -- Tony Wu.
+/* Create a local firmware_name with path to replace original global firmware_name -- Tony Wu.*/
 	const char *firmware_name = "../../../data/wimax/Boot.bin";
 
 	struct sqn_sdio_card *sqn_card = sdio_get_drvdata(func);
@@ -1662,7 +1640,8 @@ int sqn_load_firmware(struct sdio_func *func)
 	sqn_pr_enter();
 
 	sqn_pr_info("trying to find bootloader image: \"%s\"\n", firmware_name);
-	if ((rv = request_firmware(&fw, firmware_name, &func->dev)))
+	rv = request_firmware(&fw, firmware_name, &func->dev);
+	if (rv)
 		goto out;
 
 	if (SQN_1130 == sqn_card->version) {
@@ -1684,20 +1663,21 @@ int sqn_load_firmware(struct sdio_func *func)
 	}
 
 	sqn_pr_info("loading bootloader to the card...\n");
-	if ((rv = sqn_load_bootstrapper(func, (u8*) fw->data, fw->size)))
+	rv = sqn_load_bootstrapper(func, (u8 *) fw->data, fw->size);
+	if (rv)
 		goto out;
 
 	/* boot the card */
 	sqn_pr_info("bootting the card...\n");
-	sdio_claim_host(func); // by daniel
+	sdio_claim_host(func); /* by daniel */
 	sdio_writeb(func, 1, SQN_H_CRSTN, &rv);
-	sdio_release_host(func); // by daniel
+	sdio_release_host(func); /* by daniel */
 	if (rv)
 		goto out;
 	sqn_pr_info("  done\n");
 
 out:
-	// To avoid kzalloc leakage in /drivers/base/firmware_class.c	
+	/* To avoid kzalloc leakage in /drivers/base/firmware_class.c */
 	if (fw) {
 		release_firmware(fw);
 		fw = NULL;

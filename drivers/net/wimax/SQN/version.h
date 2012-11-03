@@ -12,7 +12,7 @@
 #ifndef _SQN_VERSION_H
 #define _SQN_VERSION_H
 
-#define SQN_MODULE_NAME		"sequans_sdio"
+#define SQN_MODULE_NAME		"[WIMAX] sequans_sdio"
 #define SQN_MODULE_VERSION	"4.6.2.4-004"
 
 #endif /* _SQN_VERSION_H */

@@ -38,20 +38,12 @@
 #include "sdio-sqn.h"
 
 static u8 __sqn_per_file_dbg = 0;
-u8* __sqn_pm_per_file_dbg_addr(void)
+u8 *__sqn_pm_per_file_dbg_addr(void)
 {
 	return &__sqn_per_file_dbg;
 }
 
 #define IGNORE_CARRIER_STATE 1
-extern int mmc_wimax_get_hostwakeup_gpio(void);
-extern void mmc_wimax_enable_host_wakeup(int on);
-extern int mmc_wimax_get_sdio_wakelock_log(void);
-extern int mmc_wimax_get_sdio_lsp_log(void);
-
-extern int gHostWakeupFWEvent;
-
-extern int mmc_wimax_get_wimax_FW_freeze_WK_TX(void);
 
 enum sqn_thsp_service {
 #define	THSP_LSP_SERVICE_BASE		0x10010000
@@ -172,7 +164,11 @@ static u8 g_lsp_device_mac[] = {0x00, 0x16, 0x08, 0xff, 0x00, 0x05};
 
 /* TODO: add all global variables to private per-card structure */
 static struct sk_buff	*g_last_request_skb = 0;
-static spinlock_t	g_last_request_lock = SPIN_LOCK_UNLOCKED;
+
+/* arch/powerpc/sysdev/fsl_lbc.c:static spinlock_t fsl_lbc_lock = __SPIN_LOCK_UNLOCKED(fsl_lbc_lock); */
+/* static spinlock_t	g_last_request_lock = SPIN_LOCK_UNLOCKED; */
+static spinlock_t	g_last_request_lock = __SPIN_LOCK_UNLOCKED(g_last_request_lock);
+/* -------------------------------------------------------------------------------------------------- */
 static u32		g_last_request_pm = 0;
 
 
@@ -181,7 +177,10 @@ DECLARE_WAIT_QUEUE_HEAD(g_card_sleep_waitq);
 
 /* Transaction ID for lsp requests */
 static u32		g_tid = 0;
-static spinlock_t	g_tid_lock = SPIN_LOCK_UNLOCKED;
+/* arch/powerpc/sysdev/fsl_lbc.c:static spinlock_t fsl_lbc_lock = __SPIN_LOCK_UNLOCKED(fsl_lbc_lock); */
+/* static spinlock_t	g_tid_lock = SPIN_LOCK_UNLOCKED; */
+static spinlock_t	g_tid_lock = __SPIN_LOCK_UNLOCKED(g_tid_lock);
+/* -------------------------------------------------------------------------------------------------- */
 
 
 static u32 get_current_tid(void)
@@ -224,7 +223,7 @@ static void free_last_request(void)
 }
 
 
-static struct sk_buff* lsp_to_skb(struct sqn_lsp_packet *lsp_packet) // RX
+static struct sk_buff *lsp_to_skb(struct sqn_lsp_packet *lsp_packet) /* RX */
 {
 	struct sqn_eth_header eth_header = {
 		.len = htons(sizeof(struct sqn_lsp_packet))
@@ -258,7 +257,7 @@ out:
 }
 
 
-static struct sk_buff* construct_lsp_packet(u32 id, u32 param1, u32 param2)
+static struct sk_buff *construct_lsp_packet(u32 id, u32 param1, u32 param2)
 {
 	struct sqn_lsp_packet lsp_packet = {
 		.thp_header = {
@@ -279,9 +278,8 @@ static struct sk_buff* construct_lsp_packet(u32 id, u32 param1, u32 param2)
 	switch (id) {
 	case THSP_GET_MEDIA_CONNECTION_STATE:
 		/* no parameters are needed */
-		if (mmc_wimax_get_sdio_lsp_log()) {
+		if (mmc_wimax_get_sdio_lsp_log())
 			sqn_pr_info("TX LSP: THSP_GET_MEDIA_CONNECTION_STATE\n");
-		}
 		lsp_packet.thp_header.length =
 			htons(sizeof(struct sqn_lsp_header) - 4);
 		lsp_packet.thp_header.total_length =
@@ -289,9 +287,8 @@ static struct sk_buff* construct_lsp_packet(u32 id, u32 param1, u32 param2)
 		break;
 	case THSP_SET_POWER_MODE:
 		/* deprecated */
-		if (mmc_wimax_get_sdio_lsp_log()) {
+		if (mmc_wimax_get_sdio_lsp_log())
 			sqn_pr_info("TX LSP: THSP_SET_POWER_MODE (deprecated)\n");
-		}
 		break;
 	case THSP_SET_HOST_POWER_MODE:
 		lsp_packet.thp_header.length =
@@ -343,9 +340,8 @@ static struct sk_buff* construct_lsp_packet(u32 id, u32 param1, u32 param2)
 		}
 		break;
 	default:
-		if (mmc_wimax_get_sdio_lsp_log()) {
+		if (mmc_wimax_get_sdio_lsp_log())
 			sqn_pr_info("TX LSP: UNKNOWN\n");
-		}
 	}
 
 	skb = lsp_to_skb(&lsp_packet);
@@ -358,7 +354,7 @@ static struct sk_buff* construct_lsp_packet(u32 id, u32 param1, u32 param2)
 
 int sqn_is_rx_lsp_packet(const struct sk_buff *skb)
 {
-	struct sqn_eth_header *eth_hdr = (struct sqn_eth_header*)skb->data;
+	struct sqn_eth_header *eth_hdr = (struct sqn_eth_header *)skb->data;
 
 	/* sqn_pr_dbg_dump("skb________", skb->data, skb->len); */
 	/* sqn_pr_dbg_dump("lsp_dev_mac", g_lsp_device_mac, sizeof(g_lsp_device_mac)); */
@@ -370,7 +366,7 @@ int sqn_is_rx_lsp_packet(const struct sk_buff *skb)
 
 int sqn_is_tx_lsp_packet(const struct sk_buff *skb)
 {
-	struct sqn_eth_header *eth_hdr = (struct sqn_eth_header*)skb->data;
+	struct sqn_eth_header *eth_hdr = (struct sqn_eth_header *)skb->data;
 
 	/* sqn_pr_dbg_dump("skb________", skb->data, skb->len); */
 	/* sqn_pr_dbg_dump("lsp_dev_mac", g_lsp_device_mac, sizeof(g_lsp_device_mac)); */
@@ -584,7 +580,8 @@ static void handle_sqn_state_change_msg(struct sqn_private *priv
 	}
 	skb_reply = construct_lsp_packet(THSP_SQN_STATE_CHANGE_REPLY
 			, ntohl(lsp->lsp_header.u.thp_avl.tid), 0);
-	if (0 != (skb_reply = sqn_sdio_prepare_skb_for_tx(skb_reply)))
+	skb_reply = sqn_sdio_prepare_skb_for_tx(skb_reply);
+	if (0 != skb_reply)
 		sqn_sdio_tx_skb(card, skb_reply, 0);
 	wake_up_interruptible(&g_card_sleep_waitq);
 
@@ -597,7 +594,7 @@ static void handle_thp_avl_msg(struct sqn_private *priv
 {
 	struct sqn_sdio_card *card = priv->card;
 	struct sk_buff *skb_reply = 0;
-	enum sqn_thp_available_reply thp_rpl; 
+	enum sqn_thp_available_reply thp_rpl;
 	unsigned long irq_flags = 0;
 
 	sqn_pr_enter();
@@ -605,22 +602,20 @@ static void handle_thp_avl_msg(struct sqn_private *priv
 	spin_lock_irqsave(&priv->drv_lock, irq_flags);
 	/* if (card->is_card_sleeps) { */
 	if (priv->is_tx_queue_empty(priv)) {
-		if (mmc_wimax_get_sdio_lsp_log()) {
+		if (mmc_wimax_get_sdio_lsp_log())
 			sqn_pr_info("TX queue empty, thp_rpl=FINISH\n");
-		}
 		/* sqn_pr_dbg("card was asleep, thp_rpl=FINISH\n"); */
 		thp_rpl = LSP_THPA_FINISHED;
 		card->is_card_sleeps = 1;
-		gHostWakeupFWEvent = 0;
+		mmc_wimax_set_HostWakeupFWEvent(0);
 	/* } else if (priv->is_tx_queue_empty(priv)) { */
 		/* sqn_pr_dbg("card was not asleep and tx_queue is empty, thp_rpl=FINISHED\n"); */
 		/* thp_rpl = LSP_THPA_FINISHED; */
 		/* card->is_card_sleeps = 1; */
 	} else {
 		/* sqn_pr_info("card was not asleep but tx_queue is no empty, thp_rpl=EXIT\n"); */
-		if (mmc_wimax_get_sdio_lsp_log()) {
+		if (mmc_wimax_get_sdio_lsp_log())
 			sqn_pr_info("TX queue not empty, thp_rpl=ACK\n");
-		}
 		/* sqn_pr_dbg("card was not asleep, thp_rpl=ACK\n"); */
 		thp_rpl = LSP_THPA_ACK;
 		card->is_card_sleeps = 0;
@@ -629,15 +624,15 @@ static void handle_thp_avl_msg(struct sqn_private *priv
 	skb_reply = construct_lsp_packet(THSP_THP_AVAILABLE_REPLY
 			, ntohl(lsp->lsp_header.u.thp_avl.tid)
 			, thp_rpl);
-	if (0 != (skb_reply = sqn_sdio_prepare_skb_for_tx(skb_reply)))
+	skb_reply = sqn_sdio_prepare_skb_for_tx(skb_reply);
+	if (0 != skb_reply)
 		sqn_sdio_tx_skb(card, skb_reply, 0);
 	wake_up_interruptible(&g_card_sleep_waitq);
 	if (netif_queue_stopped(priv->dev))
 		netif_wake_queue(priv->dev);
 
-	if (!card->is_card_sleeps && !gHostWakeupFWEvent) {
-		gHostWakeupFWEvent = 1; // Dump next TX packet after LSP ThpAvailableReply(ACK);
-	}
+	if (!card->is_card_sleeps && !mmc_wimax_get_HostWakeupFWEvent())
+		mmc_wimax_set_HostWakeupFWEvent(1); /* Dump next TX packet after LSP ThpAvailableReply(ACK); */
 
 	sqn_pr_leave();
 }
@@ -648,8 +643,8 @@ int sqn_handle_lsp_packet(struct sqn_private *priv
 {
 	struct sqn_sdio_card *card = priv->card;
 	unsigned long irq_flags = 0;
-	struct sqn_lsp_packet *lsp_response = (struct sqn_lsp_packet*)
-		((u8*)skb->data + sizeof(struct sqn_eth_header));
+	struct sqn_lsp_packet *lsp_response = (struct sqn_lsp_packet *)
+		((u8 *)skb->data + sizeof(struct sqn_eth_header));
 
 	sqn_pr_enter();
 
@@ -675,16 +670,15 @@ int sqn_handle_lsp_packet(struct sqn_private *priv
 				, ntohl(lsp_response->lsp_header.u.media_con_state));
 		}
 		if (THSP_MEDIA_CONNECTION_ATTACHED
-			== ntohl(lsp_response->lsp_header.u.media_con_state))
-		{
-			
+			== ntohl(lsp_response->lsp_header.u.media_con_state)) {
+
 #if IGNORE_CARRIER_STATE
-            /* netif_carrier_on(priv->dev); */
-            sqn_pr_info("WiMAX carrier PRESENT [ignored]\n");
+			/* netif_carrier_on(priv->dev); */
+			sqn_pr_info("WiMAX carrier PRESENT [ignored]\n");
 #else
-            netif_carrier_on(priv->dev);
+			netif_carrier_on(priv->dev);
 			sqn_pr_info("WiMAX carrier PRESENT\n");
-#endif            
+#endif
 		} else {
 #if IGNORE_CARRIER_STATE
 			/* netif_carrier_off(priv->dev); */
@@ -760,10 +754,10 @@ int sqn_wakeup_fw(struct sdio_func *func)
 
 	sqn_pr_enter();
 	sqn_pr_info("waking up the card...\n");
-	
+
 	if (!wake_lock_active(&card->wakelock_tx)) {
 		if (mmc_wimax_get_sdio_wakelock_log()) {
-			printk("[WIMAX] lock wl_tx2,");
+			printk(KERN_INFO "[WIMAX] lock wl_tx2,");
 			PRINTRTC;
 		}
 		wake_lock(&card->wakelock_tx);
@@ -783,28 +777,27 @@ retry:
 	do {
 		sqn_pr_dbg("CMD52 #%d, delay %d msec\n", counter, wakeup_delay);
 		ver = sdio_readb(func, SDIO_CCCR_CCCR_SDIO_VERSION, &rv);
-		// To avoid FW sutck in PLLOFF, SDIO isn't able to wake up it.
+		/* To avoid FW sutck in PLLOFF, SDIO isn't able to wake up it.*/
 		mdelay(wakeup_delay);
 		--counter;
-	} while((rv || ver != SDIO_CCCR_CCCR_SDIO_VERSION_VALUE) && counter > 0);
+	} while ((rv || ver != SDIO_CCCR_CCCR_SDIO_VERSION_VALUE) && counter > 0);
 
 	if (rv) {
 		sqn_pr_err("error when reading SDIO_VERSION\n");
 
-		if(mmc_wimax_get_wimax_FW_freeze_WK_TX())
-		{
+		if (mmc_wimax_get_wimax_FW_freeze_WK_TX()) {
 			sqn_pr_info("[ste]set is_card_sleeps 0 to avoid TX polling\n");
-			card->is_card_sleeps=0;
+			card->is_card_sleeps = 0;
 		}
 
 		sdio_release_host(func);
 		goto out;
-	} else {
+	} else
 		sqn_pr_dbg("SDIO_VERSION has been read successfully\n");
-	}
 
 	sqn_pr_dbg("send wake-up signal to card\n");
 	sdio_writeb(func, 1, SQN_SOC_SIGS_LSBS, &rv);
+
 	if (rv)
 		sqn_pr_err("error when writing to SQN_SOC_SIGS_LSBS: %d\n", rv);
 
@@ -820,7 +813,7 @@ retry:
 		goto out;
 
 	if (-ERESTARTSYS == rv) {
-		sqn_pr_warn("got a signal from kernel %d\n", rv);
+		sqn_pr_warn("got a signal from kernel %d\n" , rv);
 	} else if (0 == rv) {
 		rv = -1;
 		sqn_pr_err("can't wake up the card - timeout elapsed\n");
@@ -828,7 +821,7 @@ retry:
 		if (retry_cnt-- > 0 && card->is_card_sleeps) {
 			sqn_pr_info("retry wake up\n");
 			goto retry;
-    	}
+		}
 		sqn_pr_info("giving up to wake up the card\n");
 
 		spin_lock_irqsave(&priv->drv_lock, irq_flags);
@@ -842,16 +835,14 @@ retry:
 out:
 	if (need_to_unlock_wakelock && wake_lock_active(&card->wakelock_tx)) {
 		if (mmc_wimax_get_sdio_wakelock_log()) {
-			printk("[WIMAX] release wake_lock_tx in %s,", __func__);
+			printk(KERN_INFO "[WIMAX] release wake_lock_tx in %s" , __func__);
 			PRINTRTC;
 		}
-		wake_unlock(&card->wakelock_tx); // TX
+		wake_unlock(&card->wakelock_tx); /* TX */
 	}
 	sqn_pr_leave();
 	return rv;
 }
-
-extern void mmc_wimax_enable_host_wakeup(int on);
 
 static void sqn_handle_android_early_suspend(struct early_suspend *h)
 {
@@ -878,9 +869,9 @@ static void sqn_handle_android_late_resume(struct early_suspend *h)
 
 
 static struct early_suspend sqn_early_suspend_desc = {
-        .level = EARLY_SUSPEND_LEVEL_DISABLE_FB
-        , .suspend = sqn_handle_android_early_suspend
-        , .resume = sqn_handle_android_late_resume
+	.level = EARLY_SUSPEND_LEVEL_DISABLE_FB
+	, .suspend = sqn_handle_android_early_suspend
+	, .resume = sqn_handle_android_late_resume
 };
 
 

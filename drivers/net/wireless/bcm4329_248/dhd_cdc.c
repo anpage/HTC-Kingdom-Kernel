@@ -67,6 +67,7 @@ extern int dhd_get_dtim_skip(dhd_pub_t *dhd);
 extern int usb_get_connect_type(void); // msm72k_udc.c
 
 #ifdef BCM4329_LOW_POWER
+int LowPowerMode = 1;
 extern char gatewaybuf[8+1]; //HTC_KlocWork
 char ip_str[32];
 bool hasDLNA = false;
@@ -76,12 +77,20 @@ extern int wl_pattern_atoh(char *src, char *dst);
 
 extern int wifi_get_dot11n_enable(void);
 
+// packet filter for Rogers nat keep alive +++
+extern int filter_reverse;
+// packet filter for Rogers nat keep alive ---
+
 #if defined(SOFTAP)
 extern bool ap_fw_loaded;
 #endif
 #if defined(KEEP_ALIVE)
 int dhd_keep_alive_onoff(dhd_pub_t *dhd, int ka_on);
 #endif /* KEEP_ALIVE */
+
+//HTC_CSP_START
+char project_type[33];
+//HTC_CSP_END
 
 typedef struct dhd_prot {
 	uint16 reqid;
@@ -609,7 +618,13 @@ static int dhd_set_pfn(dhd_pub_t *dhd, int enabled)
 	pfn_param.version = htod32(PFN_VERSION);
 	pfn_param.flags = htod16((PFN_LIST_ORDER << SORT_CRITERIA_BIT));
 	/* Scan frequency of 30 sec */
-	pfn_param.scan_freq = htod32(PFN_SCAN_FREQ);
+//HTC_CSP_START
+	if (project_type != NULL && !strnicmp(project_type, "KT", strlen("KT")) ) {
+		pfn_param.scan_freq = htod32(120);
+	} else {
+		pfn_param.scan_freq = htod32(PFN_SCAN_FREQ);
+	}
+//HTC_CSP_END
 	/* RSSI margin of 30 dBm */
 	pfn_param.rssi_margin = htod16(30);
 	/* Network timeout 60 sec */
@@ -703,6 +718,10 @@ char iovbuf[32];
 				/* Enable packet filter, only allow unicast packet to send up */
 				dhd_set_packet_filter(1, dhd);
 #endif
+// packet filter for Rogers nat keep alive +++
+				if (filter_reverse)
+					dhd_suspend_pktfilter(dhd, value);
+// packet filter for Rogers nat keep alive ---
 #if 0
 				/* if dtim skip setup as default force it to wake each thrid dtim
 				 *  for better power saving.
@@ -725,15 +744,16 @@ char iovbuf[32];
 #endif /* CUSTOMER_HW2 */
 #endif
 #ifdef BCM4329_LOW_POWER
-             if (!hasDLNA && !allowMulticast)
-             {
+		if (LowPowerMode == 1) {
+			if (!hasDLNA && !allowMulticast) {
 				/* ignore broadcast and multicast packet*/
 				bcm_mkiovar("pm_ignore_bcmc", (char *)&ignore_bcmc,
 					4, iovbuf, sizeof(iovbuf));
 				dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf));
 				/* keep alive packet*/
 				dhd_set_keepalive(1);
-		      }
+			}
+		}
 #endif
 #ifdef PNO_SUPPORT
 				/* set pfn */
@@ -756,6 +776,12 @@ char iovbuf[32];
 				/* disable pkt filter */
 				dhd_set_packet_filter(0, dhd);
 #endif
+
+// packet filter for Rogers nat keep alive +++
+				if (filter_reverse)
+					dhd_suspend_pktfilter(dhd, value);
+// packet filter for Rogers nat keep alive ---
+
 			dhdhtc_update_wifi_power_mode(is_screen_off);
 			dhdhtc_update_dtim_listen_interval(is_screen_off);
 #if 0
@@ -774,13 +800,15 @@ char iovbuf[32];
 #endif /* CUSTOMER_HW2 */
 #endif
 #ifdef BCM4329_LOW_POWER
+				if (LowPowerMode == 1) {
 					ignore_bcmc = 0;
-				/* Not ignore broadcast and multicast packet*/
-				bcm_mkiovar("pm_ignore_bcmc", (char *)&ignore_bcmc,
-					4, iovbuf, sizeof(iovbuf));
-				dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf));
-				/* Disable keep alive packet*/
-				dhd_set_keepalive(0);
+					/* Not ignore broadcast and multicast packet*/
+					bcm_mkiovar("pm_ignore_bcmc", (char *)&ignore_bcmc,
+						4, iovbuf, sizeof(iovbuf));
+					dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf));
+					/* Disable keep alive packet*/
+					dhd_set_keepalive(0);
+				}
 #endif
 #ifdef PNO_SUPPORT
 				dhd_set_pfn(dhd, 0);
@@ -855,6 +883,76 @@ int dhd_set_keepalive(int value)
 #endif
 
 #ifdef CUSTOMER_HW2
+
+// packet filter for Rogers nat keep alive +++
+#define DEFAULT_MAX_NUM_FILTERS	8
+static int pkt_filter_element[DEFAULT_MAX_NUM_FILTERS] = {0};
+void dhd_suspend_pktfilter(dhd_pub_t * dhd, int suspend)
+{
+	wl_pkt_filter_enable_t	enable_parm;
+	int i, pkt_id = 0;
+	char buf[256];
+	uint filter_mode = 0;	
+
+	printk("Enter set packet filter in %s\n", suspend?"suspend":"resume");
+
+	/* when suspend, enable id > 200, disable id < 200. vice vesa */
+
+	if (suspend) {
+		for (i = 0; i < DEFAULT_MAX_NUM_FILTERS; i++) {
+			pkt_id = pkt_filter_element[i];
+			if (pkt_id) {
+				if (pkt_id < 200) {
+					/* disable it!! */
+					enable_parm.id = htod32(pkt_id);
+					enable_parm.enable = htod32(0);
+					bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
+						sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
+					dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+				} else {
+					/* enable it!! */
+					enable_parm.id = htod32(pkt_id);
+					enable_parm.enable = htod32(1);
+					bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
+						sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
+					dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+				}
+			}
+		}
+		
+		bcm_mkiovar("pkt_filter_mode", (char *)&filter_mode, 4, buf, sizeof(buf));
+		dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+	} else {
+		for (i = 0; i < DEFAULT_MAX_NUM_FILTERS; i++) {
+			pkt_id = pkt_filter_element[i];
+			if (pkt_id) {
+				if (pkt_id >= 200) {
+					/* disable it!! */
+					enable_parm.id = htod32(pkt_id);
+					enable_parm.enable = htod32(0);
+					bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
+						sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
+					dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+				} else {
+					/* enable it!! */
+					enable_parm.id = htod32(pkt_id);
+					enable_parm.enable = htod32(1);
+					bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
+						sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
+					dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+				}
+			}
+		}
+
+		filter_mode = 1;
+		bcm_mkiovar("pkt_filter_mode", (char *)&filter_mode, 4, buf, sizeof(buf));
+		dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+	}
+
+	return;
+}
+// packet filter for Rogers nat keep alive ---
+
 int dhd_set_pktfilter(dhd_pub_t * dhd, int add, int id, int offset, char *mask, char *pattern)
 {
 	char 				*str;
@@ -868,13 +966,18 @@ int dhd_set_pktfilter(dhd_pub_t * dhd, int add, int id, int offset, char *mask, 
 	int pkt_id = id;
 	wl_pkt_filter_enable_t	enable_parm;
 
+// packet filter for Rogers nat keep alive +++
+	int i, empty = 0, empty_found = 0;
+// packet filter for Rogers nat keep alive ---
+
 	printf("Enter set packet filter\n");
 
 #ifdef BCM4329_LOW_POWER
-	if (add == 1 && pkt_id == 105)
-	{
-		printf("MCAST packet filter, hasDLNA is true\n");
-		hasDLNA = true;
+	if (LowPowerMode == 1) {
+		if (add == 1 && pkt_id == 105) {
+			printf("MCAST packet filter, hasDLNA is true\n");
+			hasDLNA = true;
+		}
 	}
 #endif
 
@@ -890,6 +993,14 @@ int dhd_set_pktfilter(dhd_pub_t * dhd, int add, int id, int offset, char *mask, 
 	dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
 
 	if (!add) {
+// packet filter for Rogers nat keep alive +++
+		if (filter_reverse) {
+			for (i = 0; i < DEFAULT_MAX_NUM_FILTERS; i++) {
+				if (pkt_filter_element[i] == pkt_id)
+					pkt_filter_element[i] = 0;
+			}
+		}
+// packet filter for Rogers nat keep alive ---
 		return 0;
 	}
 
@@ -921,9 +1032,11 @@ int dhd_set_pktfilter(dhd_pub_t * dhd, int add, int id, int offset, char *mask, 
 		(char *) pkt_filterp->u.pattern.mask_and_pattern));
 
 #ifdef BCM4329_LOW_POWER
-	if (add == 1 && id == 101){
-		memcpy(ip_str, pattern+78, 8);
-		DHD_TRACE(("ip: %s", ip_str));
+	if (LowPowerMode == 1) {
+		if (add == 1 && id == 101) {
+			memcpy(ip_str, pattern+78, 8);
+			DHD_TRACE(("ip: %s", ip_str));
+		}
 	}
 #endif
 	/* Parse pattern filter pattern. */
@@ -944,11 +1057,45 @@ int dhd_set_pktfilter(dhd_pub_t * dhd, int add, int id, int offset, char *mask, 
 
 	dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, buf_len);
 
-	enable_parm.id = htod32(pkt_id);
-	enable_parm.enable = htod32(1);
-	bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
-		sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
-	dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+// packet filter for Rogers nat keep alive +++
+	/* only enabled if id < 200, and not in suspend mod */
+	if (filter_reverse) {
+		if ((pkt_id < 200)&&(!dhd->in_suspend)) {
+// packet filter for Rogers nat keep alive ---
+			enable_parm.id = htod32(pkt_id);
+			enable_parm.enable = htod32(1);
+
+			bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
+				sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
+			dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+// packet filter for Rogers nat keep alive +++
+		}
+
+		for (i = 0; i < DEFAULT_MAX_NUM_FILTERS; i++) {
+			if (!empty_found && (pkt_filter_element[i] == 0)) {
+				empty_found = 1;
+				empty = i;
+			}
+			if (pkt_filter_element[i] == pkt_id) /* item already exist, skip it */
+				break;
+		}
+
+		if (i == DEFAULT_MAX_NUM_FILTERS) {
+			/* add this item to list */
+			if (empty_found)
+				pkt_filter_element[empty] = pkt_id;
+			else
+				printk("no enough room for filter %d!!\n", pkt_id);
+		}		
+	} else {
+		enable_parm.id = htod32(pkt_id);
+		enable_parm.enable = htod32(1);
+		
+		bcm_mkiovar("pkt_filter_enable", (char *)&enable_parm,
+			sizeof(wl_pkt_filter_enable_t), buf, sizeof(buf));
+		dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+	}
+// packet filter for Rogers nat keep alive ---
 
 	return 0;
 }
@@ -971,6 +1118,7 @@ int dhd_set_pktfilter(dhd_pub_t * dhd, int add, int id, int offset, char *mask, 
  * 20Mbps: ~2600 packets / second
  */
 
+#define TRAFFIC_SUPERHIGH_WATER_MARK                2000 * (3000/1000)
 #define TRAFFIC_HIGH_WATER_MARK                670 *(3000/1000)
 #define TRAFFIC_LOW_WATER_MARK          280 * (3000/1000)
 
@@ -993,6 +1141,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	uint bcn_timeout = 4;
 	int scan_assoc_time = 40;
 	int scan_unassoc_time = 40;
+	int scan_passive_time = 100;
 	uint32 listen_interval = LISTEN_INTERVAL; /* Default Listen Interval in Beacons */
 #if defined(SOFTAP)
 	uint dtim = 1;
@@ -1035,11 +1184,10 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif  /* GET_CUSTOM_MAC_ENABLE */
 
 	/* Set Country code */
-	if (dhd->country_code[0] != 0) {
-		if (dhdcdc_set_ioctl(dhd, 0, WLC_SET_COUNTRY,
-			dhd->country_code, sizeof(dhd->country_code)) < 0) {
+	if (dhd->dhd_cspec.ccode[0] != 0) {
+		bcm_mkiovar("country", (char *)&dhd->dhd_cspec, sizeof(wl_country_t), buf, sizeof(buf));
+		if ((ret = dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf))) < 0)
 			DHD_ERROR(("%s: country code setting failed\n", __FUNCTION__));
-		}
 	}
 
 	/* Set Listen Interval */
@@ -1165,6 +1313,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		sizeof(scan_assoc_time));
 	dhdcdc_set_ioctl(dhd, 0, WLC_SET_SCAN_UNASSOC_TIME, (char *)&scan_unassoc_time,
 		sizeof(scan_unassoc_time));
+	dhdcdc_set_ioctl(dhd, 0, WLC_SET_SCAN_PASSIVE_TIME, (char *)&scan_passive_time,
+		sizeof(scan_passive_time));
 
 #if 0//def ARP_OFFLOAD_SUPPORT
 	/* Set and enable ARP offload feature */
@@ -1185,6 +1335,10 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	dhd_set_pktfilter(dhd, 1, ALLOW_DHCP, 0, "0xffffffffffff000000000000ffff00000000000000000000000000000000000000000000ffff", "0xffffffffffff0000000000000800000000000000000000000000000000000000000000000044");
 	dhd_set_pktfilter(dhd, 1, ALLOW_IPV6_MULTICAST, 0, "0xffff", "0x3333");
 #endif
+// packet filter for Rogers nat keep alive +++
+	if (filter_reverse)
+		dhd_set_pktfilter(dhd, 1, DENY_NAT_KEEP_ALIVE, 26, "0xFFFF0000000000000000FFFFFFFF", "0x4AC6000000000000000011940009");
+// packet filter for Rogers nat keep alive ---
 #else
 	dhd->pktfilter_count = 1;
 	/* Setup filter to allow only unicast */
@@ -1240,6 +1394,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	ret = TRAFFIC_HIGH_WATER_MARK;
 	bcm_mkiovar("tc_hi_wm", (char *)&ret, 4, iovbuf, sizeof(iovbuf));
 	dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf));
+	ret = TRAFFIC_SUPERHIGH_WATER_MARK;
+	bcm_mkiovar("tc_shi_wm", (char *)&ret, 4, iovbuf, sizeof(iovbuf));
+	dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf));
 	ret = 1;
 	bcm_mkiovar("tc_enable", (char *)&ret, 4, iovbuf, sizeof(iovbuf));
 	dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf));
@@ -1258,12 +1415,14 @@ dhd_prot_init(dhd_pub_t *dhd)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
+	mdelay(200);
 	dhd_os_proto_block(dhd);
 
 	/* Get the device MAC address */
 	strcpy(buf, "cur_etheraddr");
 	ret = dhdcdc_query_ioctl(dhd, 0, WLC_GET_VAR, buf, sizeof(buf));
 	if (ret < 0) {
+		DHD_ERROR(("%s: dhdcdc_query_ioctl ret=%d\n", __func__, ret));
 		dhd_os_proto_unblock(dhd);
 		return ret;
 	}

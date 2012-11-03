@@ -22,15 +22,25 @@
 #include <net/tcp.h>
 #include "smd_private.h"
 
+#ifdef CONFIG_ARCH_MSM8960
+	#define PACKET_FILTER_UDP
+#endif
+
 static struct mutex port_lock;
 static struct wake_lock port_suspend_lock;
 static uint16_t *port_list = NULL;
+#ifdef PACKET_FILTER_UDP
+static uint16_t *port_list_udp = NULL;
+#endif
 static int usb_enable = 0;
 struct p_list {
 	struct list_head list;
 	int no;
 };
 static struct p_list curr_port_list;
+#ifdef PACKET_FILTER_UDP
+static struct p_list curr_port_list_udp;
+#endif
 static int packet_filter_flag = 1;
 struct class *p_class;
 static struct miscdevice portlist_misc = {
@@ -38,7 +48,8 @@ static struct miscdevice portlist_misc = {
 	.name = "htc-portlist",
 };
 
-static ssize_t htc_show(struct device *dev,  struct device_attribute *attr,  char *buf) {
+static ssize_t htc_show(struct device *dev,  struct device_attribute *attr,  char *buf)
+{
 	char *s = buf;
 	mutex_lock(&port_lock);
 	s += sprintf(s, "%d\n", packet_filter_flag);
@@ -46,13 +57,20 @@ static ssize_t htc_show(struct device *dev,  struct device_attribute *attr,  cha
 	return s - buf;
 }
 
-static ssize_t htc_store(struct device *dev, struct device_attribute *attr,  const char *buf, size_t count) {
+static ssize_t htc_store(struct device *dev, struct device_attribute *attr,  const char *buf, size_t count)
+{
 	int ret;
 
 	mutex_lock(&port_lock);
 	if (!strncmp(buf, "0", strlen("0"))) {
 		packet_filter_flag = 0;
 		printk(KERN_INFO "[Port list] Disable Packet filter\n");
+#ifdef PACKET_FILTER_UDP
+		if (port_list_udp != NULL)
+			port_list_udp[0] = packet_filter_flag;
+		else
+			printk(KERN_ERR "[Port list] port_list_udp == NULL\n");
+#endif
 		if (port_list != NULL)
 			port_list[0] = packet_filter_flag;
 		else
@@ -61,6 +79,12 @@ static ssize_t htc_store(struct device *dev, struct device_attribute *attr,  con
 	} else if (!strncmp(buf, "1", strlen("1"))) {
 		packet_filter_flag = 1;
 		printk(KERN_INFO "[Port list] Enable Packet filter\n");
+#ifdef PACKET_FILTER_UDP
+		if (port_list_udp != NULL)
+			port_list_udp[0] = packet_filter_flag;
+		else
+			printk(KERN_ERR "[Port list] port_list_udp == NULL\n");
+#endif
 		if (port_list != NULL)
 			port_list[0] = packet_filter_flag;
 		else
@@ -77,7 +101,8 @@ static ssize_t htc_store(struct device *dev, struct device_attribute *attr,  con
 
 static DEVICE_ATTR(flag, 0664, htc_show, htc_store);
 
-static int port_list_enable(int enable) {
+static int port_list_enable(int enable)
+{
 	if (port_list[0] != enable) {
 		port_list[0] = enable;
 		if (enable)
@@ -88,7 +113,22 @@ static int port_list_enable(int enable) {
 	return 0;
 }
 
-static void update_port_list(void) {
+#ifdef PACKET_FILTER_UDP
+static int port_list_enable_udp(int enable)
+{
+	if (port_list_udp[0] != enable) {
+		port_list_udp[0] = enable;
+		if (enable)
+			printk(KERN_INFO "[Port list] port_list_udp is enabled.\n");
+		else
+			printk(KERN_INFO "[Port list] port_list_udp is disabled.\n");
+	}
+	return 0;
+}
+#endif
+
+static void update_port_list(void)
+{
 	size_t count = 0;
 	size_t i = 0;
 	struct list_head *listptr;
@@ -102,7 +142,7 @@ static void update_port_list(void) {
 			port_list[count] = entry->no;
 	}
 	if (count < 127)
-		for (i = count + 1; i <= 127; i++ )
+		for (i = count + 1; i <= 127; i++)
 			port_list[i] = 0;
 
 	if (usb_enable) {
@@ -113,34 +153,86 @@ static void update_port_list(void) {
 		else
 			port_list_enable(0);
 	}
+
+	#ifdef PACKET_FILTER_UDP
+	count = 0;
+	list_for_each(listptr, &curr_port_list_udp.list) {
+		entry = list_entry(listptr, struct p_list, list);
+		count++;
+		printk(KERN_INFO "[Port list] UDP [%d] = %d\n", count, entry->no);
+		if (count <= 127)
+			port_list_udp[count] = entry->no;
+	}
+	if (count < 127)
+		for (i = count + 1; i <= 127; i++)
+			port_list_udp[i] = 0;
+
+	if (usb_enable) {
+		port_list_enable_udp(0);
+	} else {
+		if (count <= 127)
+			port_list_enable_udp(1);
+		else
+			port_list_enable_udp(0);
+	}
+	#endif
 }
 
-static struct p_list *add_list(int no) {
-    struct p_list *ptr;
-    struct list_head *listptr;
-    struct p_list *entry;
-    int get_list = 0;
+static struct p_list *add_list(int no)
+{
+	struct p_list *ptr = NULL;
+	struct list_head *listptr;
+	struct p_list *entry;
+	int get_list = 0;
 
-    list_for_each(listptr, &curr_port_list.list) {
-        entry = list_entry(listptr, struct p_list, list);
-        if (entry->no == no) {
-            printk(KERN_INFO "[Port list] Port %d is already in the list!", entry->no);
-            get_list = 1;
-            break;
-        }
-    }
-    if(!get_list) {
-        ptr = kmalloc(sizeof(struct p_list), GFP_KERNEL);
-        if(ptr) {
-            ptr->no = no;
-            list_add_tail(&ptr->list, &curr_port_list.list);
-            printk(KERN_INFO "[Port list] Add port [%d]\n", no);
-        }
-    }
-    return (ptr);
+	list_for_each(listptr, &curr_port_list.list) {
+		entry = list_entry(listptr, struct p_list, list);
+		if (entry->no == no) {
+			printk(KERN_INFO "[Port list] Port %d is already in the list!", entry->no);
+			get_list = 1;
+			break;
+		}
+	}
+	if (!get_list) {
+		ptr = kmalloc(sizeof(struct p_list), GFP_KERNEL);
+		if (ptr) {
+			ptr->no = no;
+			list_add_tail(&ptr->list, &curr_port_list.list);
+			printk(KERN_INFO "[Port list] Add port [%d]\n", no);
+		}
+	}
+	return (ptr);
 }
+#ifdef PACKET_FILTER_UDP
+static struct p_list *add_list_udp(int no)
+{
+	struct p_list *ptr = NULL;
+	struct list_head *listptr;
+	struct p_list *entry;
+	int get_list = 0;
 
-static void remove_list(int no) {
+	list_for_each(listptr, &curr_port_list_udp.list) {
+		entry = list_entry(listptr, struct p_list, list);
+		if (entry->no == no) {
+			printk(KERN_INFO "[Port list] Port_udp %d is already in the list!", entry->no);
+			get_list = 1;
+			break;
+		}
+	}
+	if (!get_list) {
+		ptr = kmalloc(sizeof(struct p_list), GFP_KERNEL);
+		if (ptr) {
+			ptr->no = no;
+			list_add_tail(&ptr->list, &curr_port_list_udp.list);
+			printk(KERN_INFO "[Port list] Add port_udp [%d]\n", no);
+		}
+	}
+	return (ptr);
+}
+#endif
+
+static void remove_list(int no)
+{
 	struct list_head *listptr;
 	struct p_list *entry;
 	int get_list = 0;
@@ -155,11 +247,33 @@ static void remove_list(int no) {
 			break;
 		}
 	}
-	if(!get_list)
+	if (!get_list)
 		printk(KERN_INFO "[Port list] Remove failed! Port number is not in list!\n");
 }
+#ifdef PACKET_FILTER_UDP
+static void remove_list_udp(int no)
+{
+	struct list_head *listptr;
+	struct p_list *entry;
+	int get_list = 0;
 
-int add_or_remove_port(struct sock *sk, int add_or_remove) {
+	list_for_each(listptr, &curr_port_list_udp.list) {
+		entry = list_entry(listptr, struct p_list, list);
+		if (entry->no == no) {
+			printk(KERN_INFO "[Port list] Remove port_udp [%d]\n", entry->no);
+			list_del(&entry->list);
+			kfree(entry);
+			get_list = 1;
+			break;
+		}
+	}
+	if (!get_list)
+		printk(KERN_INFO "[Port list] Remove failed! Port_udp number is not in list!\n");
+}
+#endif
+
+int add_or_remove_port(struct sock *sk, int add_or_remove)
+{
 	struct inet_sock *inet = inet_sk(sk);
 	uint32_t port_list_phy_addr;
 	__be32 src = inet->inet_rcv_saddr;
@@ -171,15 +285,19 @@ int add_or_remove_port(struct sock *sk, int add_or_remove) {
 		return 0;
 	}
 
-	if (sk->sk_state != TCP_LISTEN) {
-		wake_unlock(&port_suspend_lock);
-		return 0;
-	}
-
-	/* if source IP != 127.0.0.1 */
-	if (src != 0x0100007F && srcp != 0) {
+	/* if TCP packet and source IP != 127.0.0.1 */
+	if (sk->sk_protocol == IPPROTO_TCP && src != 0x0100007F && srcp != 0) {
+		/* Handle TCP_LISTEN only */
+		if (sk->sk_state != TCP_LISTEN) {
+			wake_unlock(&port_suspend_lock);
+			return 0;
+		}
 		if (port_list == NULL) {
-			port_list = smem_alloc(SMEM_ID_VENDOR2, 256);
+			#ifdef PACKET_FILTER_UDP
+			port_list = smem_alloc(SMEM_ID_VENDOR2, sizeof(uint16_t)*256);
+			#else
+			port_list = smem_alloc(SMEM_ID_VENDOR2, sizeof(uint16_t)*128);
+			#endif
 			port_list_phy_addr = MSM_SHARED_RAM_PHYS + ((uint32_t)port_list - (uint32_t)MSM_SHARED_RAM_BASE);
 			printk(KERN_INFO "[Port list] Virtual Address of port_list: [%p]\n", port_list);
 			printk(KERN_INFO "[Port list] Physical Address of port_list: [%X]\n", port_list_phy_addr);
@@ -189,10 +307,19 @@ int add_or_remove_port(struct sock *sk, int add_or_remove) {
 				return 0;
 			} else {
 				port_list[0] = packet_filter_flag;
+				#ifdef PACKET_FILTER_UDP
+				port_list_udp = port_list + 128;
+				port_list_udp[0] = packet_filter_flag;
+				#endif
 			}
 		}
+		#ifdef PACKET_FILTER_UDP
+		printk(KERN_INFO "[Port list] Address of port_list: [%p]\n", port_list);
+		printk(KERN_INFO "[Port list] Address of port_list_udp: [%p]\n", port_list_udp);
+		#endif
 
 		mutex_lock(&port_lock);
+		printk(KERN_INFO "[Port list] TCP port#: [%d]\n", srcp);
 		if (add_or_remove)
 			add_list(srcp);
 		else
@@ -200,12 +327,45 @@ int add_or_remove_port(struct sock *sk, int add_or_remove) {
 		update_port_list();
 		mutex_unlock(&port_lock);
 	}
+#ifdef PACKET_FILTER_UDP
+/* UDP */
+	if (sk->sk_protocol == IPPROTO_UDP && src != 0x0100007F && srcp != 0) {
+		if (port_list == NULL) {
+			port_list = smem_alloc(SMEM_ID_VENDOR2, sizeof(uint16_t)*256);
+			port_list_phy_addr = MSM_SHARED_RAM_PHYS + ((uint32_t)port_list - (uint32_t)MSM_SHARED_RAM_BASE);
+			printk(KERN_INFO "[Port list] Virtual Address of port_list: [%p]\n", port_list);
+			printk(KERN_INFO "[Port list] Physical Address of port_list: [%X]\n", port_list_phy_addr);
+			if (port_list == NULL) {
+				printk(KERN_INFO "[Port list] port_list is NULL.\n");
+				wake_unlock(&port_suspend_lock);
+				return 0;
+			} else {
+				port_list[0] = packet_filter_flag;
+				port_list_udp = port_list + 128;
+				port_list_udp[0] = packet_filter_flag;
+			}
+		}
+		printk(KERN_INFO "[Port list] Address of port_list: [%p]\n", port_list);
+		printk(KERN_INFO "[Port list] Address of port_list_udp: [%p]\n", port_list_udp);
+
+		mutex_lock(&port_lock);
+		printk(KERN_INFO "[Port list] UDP port#: [%d]\n", srcp);
+		if (add_or_remove)
+			add_list_udp(srcp);
+		else
+			remove_list_udp(srcp);
+		update_port_list();
+		mutex_unlock(&port_lock);
+	}
+#endif
+
 	wake_unlock(&port_suspend_lock);
 	return 0;
 }
 EXPORT_SYMBOL(add_or_remove_port);
 
-int update_port_list_charging_state(int enable) {
+int update_port_list_charging_state(int enable)
+{
 	size_t count = 0;
 
 	wake_lock(&port_suspend_lock);
@@ -226,29 +386,51 @@ int update_port_list_charging_state(int enable) {
 		port_list_enable(0);
 	} else {
 		for (count = 1; count <= 127; count++) {
-			if (!port_list[count]) {
+			if (!port_list[count])
 				break;
-			}
 		}
 		if (count <= 127)
 			port_list_enable(1);
 		else
 			port_list_enable(0);
 	}
+	#ifdef PACKET_FILTER_UDP
+	if (usb_enable) {
+		port_list_enable_udp(0);
+	} else {
+		for (count = 1; count <= 127; count++) {
+			if (!port_list_udp[count])
+				break;
+		}
+		if (count <= 127)
+			port_list_enable_udp(1);
+		else
+			port_list_enable_udp(0);
+	}
+	#endif
 	mutex_unlock(&port_lock);
 	wake_unlock(&port_suspend_lock);
 	return 0;
 }
 EXPORT_SYMBOL(update_port_list_charging_state);
 
-static int __init port_list_init(void) {
+static int __init port_list_init(void)
+{
 	int ret;
 	uint32_t port_list_phy_addr;
 	wake_lock_init(&port_suspend_lock, WAKE_LOCK_SUSPEND, "port_list");
 	mutex_init(&port_lock);
-	port_list = smem_alloc(SMEM_ID_VENDOR2, 256);
+	#ifdef PACKET_FILTER_UDP
+	port_list = smem_alloc(SMEM_ID_VENDOR2, sizeof(uint16_t)*256);
+	#else
+	port_list = smem_alloc(SMEM_ID_VENDOR2, sizeof(uint16_t)*128);
+	#endif
 	memset(&curr_port_list, 0, sizeof(curr_port_list));
 	INIT_LIST_HEAD(&curr_port_list.list);
+	#ifdef PACKET_FILTER_UDP
+	memset(&curr_port_list_udp, 0, sizeof(curr_port_list_udp));
+	INIT_LIST_HEAD(&curr_port_list_udp.list);
+	#endif
 
 	port_list_phy_addr = MSM_SHARED_RAM_PHYS + ((uint32_t)port_list - (uint32_t)MSM_SHARED_RAM_BASE);
 	printk(KERN_INFO "[Port list] init()\n");
@@ -284,6 +466,12 @@ static int __init port_list_init(void) {
 	}
 	if (port_list != NULL) {
 		port_list[0] = packet_filter_flag;
+		#ifdef PACKET_FILTER_UDP
+		printk(KERN_INFO "[Port list] Address of port_list: [%p]\n", port_list);
+		printk(KERN_INFO "[Port list] Address of port_list_udp: [%p]\n", port_list_udp);
+		port_list_udp = port_list + 128;
+		port_list_udp[0] = packet_filter_flag;
+		#endif
 	} else {
 		printk(KERN_INFO "[Port list] port_list is NULL.\n");
 		printk(KERN_INFO "[Port list] packet filter is disabled.\n");
@@ -301,7 +489,8 @@ err_misc_register:
 	return ret;
 }
 
-static void __exit port_list_exit(void) {
+static void __exit port_list_exit(void)
+{
 	int ret;
 	struct list_head *listptr;
 	struct p_list *entry;
@@ -318,6 +507,12 @@ static void __exit port_list_exit(void) {
 		entry = list_entry(listptr, struct p_list, list);
 		kfree(entry);
 	}
+	#ifdef PACKET_FILTER_UDP
+	list_for_each(listptr, &curr_port_list_udp.list) {
+		entry = list_entry(listptr, struct p_list, list);
+		kfree(entry);
+	}
+	#endif
 }
 
 late_initcall(port_list_init);

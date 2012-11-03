@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <linux/pagemap.h>
+#include <linux/highmem.h>
 
 #include <asm/cacheflush.h>
 #include <asm/cachetype.h>
@@ -17,7 +18,6 @@
 #include <asm/smp_plat.h>
 #include <asm/system.h>
 #include <asm/tlbflush.h>
-#include <asm/smp_plat.h>
 
 #include "mm.h"
 
@@ -180,10 +180,10 @@ void __flush_dcache_page(struct address_space *mapping, struct page *page)
 			__cpuc_flush_dcache_area(addr, PAGE_SIZE);
 			kunmap_high(page);
 		} else if (cache_is_vipt()) {
-			pte_t saved_pte;
-			addr = kmap_high_l1_vipt(page, &saved_pte);
+			/* unmapped pages might still be cached */
+			addr = kmap_atomic(page);
 			__cpuc_flush_dcache_area(addr, PAGE_SIZE);
-			kunmap_high_l1_vipt(page, saved_pte);
+			kunmap_atomic(addr);
 		}
 	}
 
@@ -229,6 +229,36 @@ static void __flush_dcache_aliases(struct address_space *mapping, struct page *p
 	flush_dcache_mmap_unlock(mapping);
 }
 
+#if __LINUX_ARM_ARCH__ >= 6
+void __sync_icache_dcache(pte_t pteval)
+{
+	unsigned long pfn;
+	struct page *page;
+	struct address_space *mapping;
+
+	if (!pte_present_user(pteval))
+		return;
+	if (cache_is_vipt_nonaliasing() && !pte_exec(pteval))
+		/* only flush non-aliasing VIPT caches for exec mappings */
+		return;
+	pfn = pte_pfn(pteval);
+	if (!pfn_valid(pfn))
+		return;
+
+	page = pfn_to_page(pfn);
+	if (cache_is_vipt_aliasing())
+		mapping = page_mapping(page);
+	else
+		mapping = NULL;
+
+	if (!test_and_set_bit(PG_dcache_clean, &page->flags))
+		__flush_dcache_page(mapping, page);
+
+	if (pte_exec(pteval))
+		__flush_icache_all();
+}
+#endif
+
 /*
  * Ensure cache coherency between kernel mapping and userspace mapping
  * of this page.
@@ -245,7 +275,8 @@ static void __flush_dcache_aliases(struct address_space *mapping, struct page *p
  *  kernel cache lines for later.  Otherwise, we assume we have
  *  aliasing mappings.
  *
- * Note that we disable the lazy flush for SMP.
+ * Note that we disable the lazy flush for SMP configurations where
+ * the cache maintenance operations are not automatically broadcasted.
  */
 void flush_dcache_page(struct page *page)
 {

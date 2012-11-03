@@ -25,6 +25,44 @@ EXPORT_SYMBOL_GPL(power_supply_class);
 
 static struct device_type power_supply_dev_type;
 
+/**
+ * power_supply_set_current_limit - set current limit
+ * @psy:	the power supply to control
+ * @limit:	current limit in uA from the power supply.
+ *		0 will disable the power supply.
+ *
+ * This function will set a maximum supply current from a source
+ * and it will disable the charger when limit is 0.
+ */
+int power_supply_set_current_limit(struct power_supply *psy, int limit)
+{
+	const union power_supply_propval ret = {limit,};
+
+	if (psy->set_property)
+		return psy->set_property(psy, POWER_SUPPLY_PROP_CURRENT_MAX,
+								&ret);
+
+	return -ENXIO;
+}
+EXPORT_SYMBOL_GPL(power_supply_set_current_limit);
+
+/**
+ * power_supply_set_charging_by - set charging state of the charger
+ * @psy:	the power supply to control
+ * @enable:	enables or disables the charger
+ */
+int power_supply_set_charging_by(struct power_supply *psy, bool enable)
+{
+	const union power_supply_propval ret = {enable,};
+
+	if (psy->set_property)
+		return psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE,
+								&ret);
+
+	return -ENXIO;
+}
+EXPORT_SYMBOL_GPL(power_supply_set_charging_by);
+
 static int __power_supply_changed_work(struct device *dev, void *data)
 {
 	struct power_supply *psy = (struct power_supply *)data;
@@ -188,6 +226,8 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	dev_set_drvdata(dev, psy);
 	psy->dev = dev;
 
+	INIT_WORK(&psy->changed_work, power_supply_changed_work);
+
 	rc = kobject_set_name(&dev->kobj, "%s", psy->name);
 	if (rc)
 		goto kobject_set_name_failed;
@@ -196,7 +236,6 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	if (rc)
 		goto device_add_failed;
 
-	INIT_WORK(&psy->changed_work, power_supply_changed_work);
 	spin_lock_init(&psy->changed_lock);
 	wake_lock_init(&psy->work_wake_lock, WAKE_LOCK_SUSPEND, "power-supply");
 
@@ -210,10 +249,10 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 
 create_triggers_failed:
 	wake_lock_destroy(&psy->work_wake_lock);
-	device_unregister(psy->dev);
+	device_del(dev);
 kobject_set_name_failed:
 device_add_failed:
-	kfree(dev);
+	put_device(dev);
 success:
 	return rc;
 }
@@ -221,7 +260,7 @@ EXPORT_SYMBOL_GPL(power_supply_register);
 
 void power_supply_unregister(struct power_supply *psy)
 {
-	flush_scheduled_work();
+	cancel_work_sync(&psy->changed_work);
 	power_supply_remove_triggers(psy);
 	wake_lock_destroy(&psy->work_wake_lock);
 	device_unregister(psy->dev);

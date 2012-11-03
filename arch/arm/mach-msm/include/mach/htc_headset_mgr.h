@@ -20,12 +20,21 @@
 #ifndef HTC_HEADSET_MGR_H
 #define HTC_HEADSET_MGR_H
 
-#include <mach/msm_rpcrouter.h>
-
 #include <linux/earlysuspend.h>
 #include <linux/input.h>
 #include <linux/switch.h>
 #include <linux/wakelock.h>
+
+#include <mach/msm_rpcrouter.h>
+#include <mach/htc_headset_config.h>
+
+#ifdef HTC_HEADSET_KERNEL_3_0
+#define set_irq_type(irq, type) irq_set_irq_type(irq, type)
+#define set_irq_wake(irq, on) irq_set_irq_wake(irq, on)
+#else
+#define set_irq_type(irq, type) set_irq_type(irq, type)
+#define set_irq_wake(irq, on) set_irq_wake(irq, on)
+#endif
 
 #define HS_ERR(fmt, arg...) \
 	printk(KERN_INFO "[" DRIVER_NAME "_ERR] (%s) " fmt "\n", \
@@ -57,6 +66,7 @@
 	__ATTR(_name, _mode, _show, _store)
 
 #define DRIVER_HS_MGR_RPC_SERVER	(1 << 0)
+#define DRIVER_HS_MGR_FLOAT_DET		(1 << 1)
 
 #define DEBUG_FLAG_LOG		(1 << 0)
 #define DEBUG_FLAG_ADC		(1 << 1)
@@ -83,6 +93,21 @@
 #define MASK_FM_ATTRIBUTE	(BIT_FM_HEADSET | BIT_FM_SPEAKER)
 #define MASK_USB_HEADSET	(BIT_USB_AUDIO_OUT)
 
+#define GOOGLE_BIT_HEADSET		(1 << 0)
+#define GOOGLE_BIT_HEADSET_NO_MIC	(1 << 1)
+#define GOOGLE_BIT_USB_HEADSET_ANLG	(1 << 2)
+#define GOOGLE_BIT_USB_HEADSET_DGTL	(1 << 3)
+#define GOOGLE_BIT_HDMI_AUDIO		(1 << 4)
+
+#define GOOGLE_SUPPORTED_HEADSETS	(GOOGLE_BIT_HEADSET | \
+					GOOGLE_BIT_HEADSET_NO_MIC | \
+					GOOGLE_BIT_USB_HEADSET_ANLG | \
+					GOOGLE_BIT_USB_HEADSET_DGTL | \
+					GOOGLE_BIT_HDMI_AUDIO)
+#define GOOGLE_HEADSETS_WITH_MIC	GOOGLE_BIT_HEADSET
+#define GOOGLE_USB_HEADSETS		(GOOGLE_BIT_USB_HEADSET_ANLG | \
+					GOOGLE_BIT_USB_HEADSET_DGTL)
+
 #define HS_DEF_MIC_ADC_10_BIT		200
 #define HS_DEF_MIC_ADC_15_BIT_MAX	25320
 #define HS_DEF_MIC_ADC_15_BIT_MIN	7447
@@ -102,6 +127,7 @@
 #define HS_DELAY_INSERT			500
 #define HS_DELAY_REMOVE			200
 #define HS_DELAY_BUTTON			500
+#define HS_DELAY_IRQ_INIT		(10 * HS_DELAY_SEC)
 
 #define HS_JIFFIES_ZERO			msecs_to_jiffies(HS_DELAY_ZERO)
 #define HS_JIFFIES_MIC_BIAS		msecs_to_jiffies(HS_DELAY_MIC_BIAS)
@@ -109,6 +135,7 @@
 #define HS_JIFFIES_INSERT		msecs_to_jiffies(HS_DELAY_INSERT)
 #define HS_JIFFIES_REMOVE		msecs_to_jiffies(HS_DELAY_REMOVE)
 #define HS_JIFFIES_BUTTON		msecs_to_jiffies(HS_DELAY_BUTTON)
+#define HS_JIFFIES_IRQ_INIT		msecs_to_jiffies(HS_DELAY_IRQ_INIT)
 
 #define HS_WAKE_LOCK_TIMEOUT		(2 * HZ)
 #define HS_RPC_TIMEOUT			(5 * HZ)
@@ -142,9 +169,16 @@ enum {
 	HEADSET_MIC		= 2,
 	HEADSET_METRICO		= 3,
 	HEADSET_UNKNOWN_MIC	= 4,
-	HEADSET_TV_OUT		= 5,
-	HEADSET_BEATS		= 6,
+	HEADSET_UNSTABLE	= 5,
+	HEADSET_TV_OUT		= 6,
 	HEADSET_INDICATOR	= 7,
+	HEADSET_BEATS		= 8,
+	HEADSET_BEATS_SOLO	= 9,
+};
+
+enum {
+	GOOGLE_USB_AUDIO_UNPLUG	= 0,
+	GOOGLE_USB_AUDIO_ANLG	= 1,
 };
 
 enum {
@@ -260,7 +294,8 @@ struct htc_headset_mgr_info {
 	struct device *debug_dev;
 	struct mutex mutex_lock;
 
-	struct switch_dev sdev;
+	struct switch_dev sdev_h2w;
+	struct switch_dev sdev_usb_audio;
 	struct input_dev *input;
 	unsigned long insert_jiffies;
 
@@ -303,5 +338,9 @@ int headset_get_type(void);
 int headset_get_type_sync(int count, unsigned int interval);
 
 extern int switch_send_event(unsigned int bit, int on);
+
+#if defined(CONFIG_FB_MSM_TVOUT) && defined(CONFIG_ARCH_MSM8X60)
+extern void tvout_enable_detection(unsigned int on);
+#endif
 
 #endif

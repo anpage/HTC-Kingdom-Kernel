@@ -165,7 +165,7 @@ typedef struct dhd_pub {
 	char * pktfilter[100];
 	int pktfilter_count;
 
-	uint8 country_code[WLC_CNTRY_BUF_SZ];
+	wl_country_t dhd_cspec;         /* Current Locale info */
 	char eventmask[WL_EVENTING_MASK_LEN];
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_HAS_WAKELOCK)
@@ -434,6 +434,9 @@ extern void dhd_sendup_event(dhd_pub_t *dhdp, wl_event_msg_t *event, void *data)
 extern int dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag);
 extern uint dhd_bus_status(dhd_pub_t *dhdp);
 extern int  dhd_bus_start(dhd_pub_t *dhdp);
+//HTC_CSP_START
+extern void dhd_info_send_hang_message(dhd_pub_t *dhdp);
+//HTC_CSP_END
 
 extern void print_buf(void *pbuf, int len, int bytes_per_line);
 
@@ -447,6 +450,9 @@ typedef enum cust_gpio_modes {
 extern int wl_iw_iscan_set_scan_broadcast_prep(struct net_device *dev, uint flag);
 extern int wl_iw_send_priv_event(struct net_device *dev, char *flag);
 extern int net_os_send_hang_message(struct net_device *dev);
+//HTC_CSP_START
+extern int net_os_send_rssilow_message(struct net_device *dev);
+//HTC_CSP_END
 /*
  * Insmod parameters for debug/test
  */
@@ -497,7 +503,7 @@ extern uint dhd_sdiod_drive_strength;
 extern uint dhd_force_tx_queueing;
 
 #ifdef CUSTOMER_HW2
-#define KEEP_ALIVE_PERIOD 60000
+#define KEEP_ALIVE_PERIOD 55000
 #else
 /* Default KEEP_ALIVE Period is 55 sec to prevent AP from sending Keep Alive probe frame */
 #define KEEP_ALIVE_PERIOD 55000
@@ -526,7 +532,7 @@ extern char nv_path[MOD_PARAM_PATHLEN];
 
 #ifdef PNO_SUPPORT
 #define MAX_PFN_NUMBER  2
-#define PFN_SCAN_FREQ   60 /* in secs */
+#define PFN_SCAN_FREQ  300 /* in secs */
 #define PFN_WAKE_TIME   20000   /* in mini secs */
 int dhd_set_pfn_ssid(char * ssid, int ssid_len);
 int dhd_del_pfn_ssid(char * ssid, int ssid_len);
@@ -540,6 +546,9 @@ enum pkt_filter_id {
 	ALLOW_DHCP,
 	ALLOW_IPV4_MULTICAST,
 	ALLOW_IPV6_MULTICAST,
+// packet filter for Rogers nat keep alive +++
+	DENY_NAT_KEEP_ALIVE = 201
+// packet filter for Rogers nat keep alive ---
 };
 int dhd_set_pktfilter(dhd_pub_t *dhd, int add, int id, int offset, char *mask, char *pattern);
 
@@ -562,5 +571,7 @@ extern void dhd_wait_event_wakeup(dhd_pub_t*dhd);
 extern int dhd_get_txrx_stats(struct net_device *net, unsigned long *rx_packets, unsigned long *tx_packets);
 /* The maximum consequent events of "out of bus->txq" */
 #define MAX_TXQ_FULL_EVENT 300
-
+// packet filter for Rogers nat keep alive +++
+extern void dhd_suspend_pktfilter(dhd_pub_t * dhd, int suspend);
+// packet filter for Rogers nat keep alive ---
 #endif /* _dhd_h_ */

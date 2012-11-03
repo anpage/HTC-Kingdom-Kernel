@@ -34,7 +34,7 @@ typedef struct _tagSUSPEND_PIN_CONFIG {
     unsigned char arGpio[200]; /* the maximum should be 1024 bytes */
 } SUSPEND_PIN_CONFIG, *PSUSPEND_PIN_CONFIG;
 
-void gpio_set_diag_gpio_table(unsigned long * dwMFG_gpio_table)
+void gpio_set_diag_gpio_table(unsigned long *dwMFG_gpio_table)
 {
 	int i = 0;
 	unsigned cfg;
@@ -47,6 +47,8 @@ void gpio_set_diag_gpio_table(unsigned long * dwMFG_gpio_table)
 	for (i = 0; i < 132; i++)
 #elif defined(CONFIG_ARCH_MSM7227)
 	for (i = 0; i < 132; i++)
+#elif defined(CONFIG_ARCH_MSM7X27)
+	for (i = 0; i < 132; i++)
 #elif defined(CONFIG_ARCH_QSD8X50)
 	for (i = 0; i <= 164; i++)
 #elif defined(CONFIG_ARCH_MSM7X30)
@@ -57,10 +59,10 @@ void gpio_set_diag_gpio_table(unsigned long * dwMFG_gpio_table)
 	{
 		unsigned char tempGpio = pSuspendPinConfig->arGpio[i];
 
-		if(tempGpio & 0x1) {
+		if (tempGpio & 0x1) {
 			/* configure by the settings from DIAG */
 			unsigned long dwGpioKind, dwGpioConfig, dwOutputLevel;
-			if(tempGpio & 0x2) { /* GPIO INPUT PIN */
+			if (tempGpio & 0x2) { /* GPIO INPUT PIN */
 				dwGpioKind = GPIO_INPUT;
 				dwOutputLevel = 0;
 			} else { /* GPIO_OUTPUT_PIN */
@@ -71,7 +73,7 @@ void gpio_set_diag_gpio_table(unsigned long * dwMFG_gpio_table)
 					dwOutputLevel = 0;
 			}
 
-			// config GpioPullStatus
+			/* config GpioPullStatus */
 			if ((tempGpio & 0x10) && (tempGpio & 0x08))
 				dwGpioConfig = GPIO_PULL_UP;
 			else if (tempGpio & 0x08)

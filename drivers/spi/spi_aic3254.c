@@ -105,7 +105,7 @@ static int32_t spi_write_table(CODEC_SPI_CMD *cmds, int num)
 
 	for (i = 0; i < num ; i++) {
 		bulk_tx[i * 2] = cmds[i].reg << 1;
-		bulk_tx[i *2 + 1] = cmds[i].data;
+		bulk_tx[i * 2 + 1] = cmds[i].data;
 	}
 	tx_addr.tx_buf = bulk_tx;
 	tx_addr.len = num * 2;
@@ -205,7 +205,7 @@ static int aic3254_config(CODEC_SPI_CMD *cmds, int size)
 				, __func__);
 	}
 	/* large dsp image use bulk mode to transfer */
-        /* avoid to bulk transfer on spi use ext_gpio_cs project */
+	/* avoid to bulk transfer on spi use ext_gpio_cs project */
 	if (size < 1000) {
 		for (i = 0; i < size; i++) {
 			switch (cmds[i].act) {
@@ -286,7 +286,7 @@ static int aic3254_config_ex(CODEC_SPI_CMD *cmds, int size)
 		ctl_ops->spibus_enable(1);
 
 	spi_message_init(&m);
-	for (i=0, ptr=buffer; i<size; i++, ptr+=2) {
+	for (i = 0, ptr = buffer; i < size; i++, ptr += 2) {
 		ptr[0] = cmds[i].reg << 1;
 		ptr[1] = cmds[i].data;
 
@@ -395,7 +395,7 @@ static void aic3254_powerdown(void)
 		clk_disable(drv->rx_sclk);
 		clk_disable(drv->rx_mclk);
 		drv->enabled = 0;
-		printk("%s: disable CLK\n", __func__);
+		pr_aud_info("%s: disable CLK\n", __func__);
 	}
 #endif
 
@@ -405,6 +405,16 @@ static void aic3254_powerdown(void)
 	pr_aud_info("power off AIC3254 %lldms --\n", t2);
 	return;
 }
+
+void aic3254_force_powerdown(void)
+{
+	aic3254_rx_config(DOWNLINK_OFF);
+	aic3254_rx_mode = DOWNLINK_OFF;
+	aic3254_tx_config(UPLINK_OFF);
+	aic3254_tx_mode = UPLINK_OFF;
+	aic3254_powerdown();
+}
+
 static void aic3254_loopback(int mode)
 {
 	if (!(ctl_ops->lb_dsp_init &&
@@ -535,8 +545,8 @@ int route_tx_enable(int path, int en)
 }
 
 
-void aic3254_set_mic_bias(int en) {
-
+void aic3254_set_mic_bias(int en)
+{
 	if (en)
 		aic3254_config(CODEC_MICBIAS_ON, ARRAY_SIZE(CODEC_MICBIAS_ON));
 	else
@@ -560,7 +570,7 @@ static int aic3254_set_config(int config_tbl, int idx, int en)
 		/* enable MI2S RX bit clock */
 		clk_enable(drv->rx_mclk);
 		clk_enable(drv->rx_sclk);
-		printk("%s: enable CLK\n", __func__);
+		pr_aud_info("%s: enable CLK\n", __func__);
 		drv->enabled = 1;
 	}
 #endif
@@ -703,8 +713,8 @@ void aic3254_set_mode(int config, int mode)
 	mutex_unlock(&lock);
 }
 
-static int aic3254_ioctl(struct inode *inode, struct file *file,
-		unsigned int cmd, unsigned long argc)
+static long aic3254_ioctl(struct file *file, unsigned int cmd,
+	   unsigned long argc)
 {
 	struct AIC3254_PARAM para;
 	void *table;
@@ -917,7 +927,7 @@ static const struct file_operations aic3254_fops = {
 	.owner = THIS_MODULE,
 	.open = aic3254_open,
 	.release = aic3254_release,
-	.ioctl = aic3254_ioctl,
+	.unlocked_ioctl = aic3254_ioctl,
 };
 
 static struct miscdevice aic3254_misc = {
@@ -926,7 +936,7 @@ static struct miscdevice aic3254_misc = {
 	.fops = &aic3254_fops,
 };
 
-static  CODEC_SPI_CMD** init_2d_array(int row_sz, int col_sz)
+static  CODEC_SPI_CMD **init_2d_array(int row_sz, int col_sz)
 {
 	CODEC_SPI_CMD *table = NULL;
 	CODEC_SPI_CMD **table_ptr = NULL;
@@ -936,8 +946,10 @@ static  CODEC_SPI_CMD** init_2d_array(int row_sz, int col_sz)
 	table = kzalloc(row_sz * col_sz * sizeof(CODEC_SPI_CMD), GFP_KERNEL);
 	if (table_ptr == NULL || table == NULL) {
 		pr_aud_err("%s: out of memory\n", __func__);
-		kfree(table);
-		kfree(table_ptr);
+		if (table != NULL)
+			kfree(table);
+		if (table_ptr != NULL)
+			kfree(table_ptr);
 	} else
 		for (i = 0; i < row_sz; i++)
 			table_ptr[i] = (CODEC_SPI_CMD *)table + i * col_sz;

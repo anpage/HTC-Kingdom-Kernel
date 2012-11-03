@@ -62,6 +62,6 @@ extern struct sqn_dfs_perf_stat sqn_dfs_pstat;
 
 void sqn_dfs_init(void);
 void sqn_dfs_cleanup(void);
-
+extern int debug;
 
 #endif /* _SQN_DEBUGFS_H */

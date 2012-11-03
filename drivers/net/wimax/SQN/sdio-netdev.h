@@ -46,5 +46,6 @@ struct sqn_private {
 
 	int  (*is_tx_queue_empty) (struct sqn_private *priv);
 };
-
+/* reference sdio-driver.c */
+extern const uint8_t  ss_macaddr[ETH_ALEN];
 #endif /* _SQN_NETDEV_H */

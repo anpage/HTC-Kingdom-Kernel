@@ -36,8 +36,9 @@
 
 #include <linux/if_arp.h>
 #include <asm/uaccess.h>
+#ifdef CONFIG_PERFLOCK
 #include <mach/perflock.h>
-
+#endif
 #include <dngl_stats.h>
 #include <dhd.h>
 #include <dhdioctl.h>
@@ -137,6 +138,8 @@ static void wl_iw_protect_timerfunc(ulong data);
 
 static int iw_link_state = 0;
 
+extern int module_insert;
+
 #if defined(SOFTAP)
 #define WL_SOFTAP(x) printf x
 static struct net_device *priv_dev;
@@ -173,6 +176,7 @@ int dev_iw_write_cfg1_bss_var(struct net_device *dev, int val);
 uint wl_msg_level = WL_ERROR_VAL;
 
 #ifdef BCM4329_LOW_POWER
+extern int LowPowerMode;
 char gatewaybuf[8+1]; //HTC_KlocWork
 extern bool hasDLNA;
 extern bool allowMulticast;
@@ -181,6 +185,10 @@ extern int dhd_set_keepalive(int value);
 
 //HTC_CSP_START
 extern struct perf_lock wlan_perf_lock;
+//HTC_CSP_END
+
+//HTC_CSP_START
+extern char project_type[33];
 //HTC_CSP_END
 
 #define MAX_WLIW_IOCTL_LEN 1024
@@ -828,7 +836,7 @@ wl_iw_low_rssi_set(
 	low_rssi_duration = bcm_strtoul(tran_buf, NULL, 10);
 	err |= dev_wlc_intvar_set(dev, "low_rssi_duration", low_rssi_duration);
 
-	WL_TRACE(("set low rssi trigger %d, duration %d\n",low_rssi_trigger, low_rssi_duration));
+	WL_DEFAULT(("set low rssi trigger %d, duration %d\n",low_rssi_trigger, low_rssi_duration));
 
 	if (err) {
 		WL_ERROR(("set low rssi ind fail!\n"));
@@ -887,16 +895,23 @@ wl_iw_set_country(
 	int country_code_size;
 	channel_info_t ci;
 	int retry = 0;
+	uint32 chan_buf[WL_NUMCHANNELS + 1];
+	wl_uint32_list_t *list;
+	scb_val_t scbval;
+	int chan = 1;
+	wl_country_t cspec = {{0}, 0, {0}};
+	char smbuf[WL_EVENTING_MASK_LEN + 12];	
 
-	wl_country_t cspec;
-	char iovbuf[WL_EVENTING_MASK_LEN + 12];	
-
+	cspec.rev = -1;
+	/* disassoc sta */
+	bzero(&scbval, sizeof(scb_val_t));
 	memset(country_code, 0, sizeof(country_code));
+	memset(smbuf, 0, sizeof(smbuf));
+	memset(&ci,0,sizeof(ci));
+	(void) dev_wlc_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t));
+	/* set channel to 1 */
+	dev_wlc_ioctl(dev, WLC_SET_CHANNEL, &chan, sizeof(chan));
 
-#ifdef HTC_KlocWork
-    memset(&ci,0,sizeof(ci));
-#endif
-	
 	country_offset = strcspn(extra, " ");
 	country_code_size = strlen(extra) - country_offset;
 
@@ -905,55 +920,176 @@ wl_iw_set_country(
 		strncpy(country_code, extra + country_offset +1,
 			MIN(country_code_size, sizeof(country_code)));
 
-		/* for 'KR', set revision to 3 for supporting 802.11n */
-		if (country_code[0] == 'K' && country_code[1] == 'R') {
-			memset(&cspec, 0, sizeof(cspec));
-			cspec.country_abbrev[0] = 'K';
-			cspec.country_abbrev[1] = 'R';
-			cspec.country_abbrev[2] = '\0';
-			cspec.ccode[0] = 'K';
-			cspec.ccode[1] = 'R';
-			cspec.ccode[2] = '\0';
-			cspec.rev = 3;
-		}
-
 		WL_DEFAULT(("%s: Try to set country %s\n", __FUNCTION__, country_code));
 get_channel_retry:
 		if ((error = dev_wlc_ioctl(dev, WLC_GET_CHANNEL, &ci, sizeof(ci)))) {
 			WL_ERROR(("%s: get channel fail!\n", __FUNCTION__));
-			goto exit;
+			goto exit_failed;
 		}
 		ci.scan_channel = dtoh32(ci.scan_channel);
 		if (ci.scan_channel) {
 			retry++;
 			WL_ERROR(("%s: scan in progress, retry %d!\n", __FUNCTION__, retry));
 			if (retry > 3)
-				goto exit;
+				goto exit_failed;
 			bcm_mdelay(1000);
 			goto get_channel_retry;
 		}
-		
-		/* for 'KR', set revision to 3 for supporting 802.11n */
-		if (country_code[0] == 'K' && country_code[1] == 'R')
-			error = dev_iw_iovar_setbuf(dev, "country", &cspec, sizeof(cspec), iovbuf, sizeof(iovbuf));
-		else
-			error = dev_wlc_ioctl(dev, WLC_SET_COUNTRY, &country_code, sizeof(country_code));
 
-		if (error >= 0) {
+		memcpy(cspec.country_abbrev, country_code, WLC_CNTRY_BUF_SZ);
+		memcpy(cspec.ccode, country_code, WLC_CNTRY_BUF_SZ);
+
+		get_customized_country_code((char *)&cspec.country_abbrev, &cspec);
+
+		if ((error = dev_iw_iovar_setbuf(dev, "country", &cspec,
+						sizeof(cspec), smbuf, sizeof(smbuf))) >= 0) {
 			p += snprintf(p, MAX_WX_STRING, "OK");
-			WL_TRACE(("%s: set country %s OK\n", __FUNCTION__, country_code));
-			dhd_bus_country_set(dev, &country_code[0]);
+			WL_ERROR(("%s: set country for %s as %s rev %d is OK\n",
+						__FUNCTION__, country_code, cspec.ccode, cspec.rev));
+			dhd_bus_country_set(dev, &cspec);
+			WL_ERROR(("%s: Try to get channel list.\n", __FUNCTION__));
+			/* check available channels */
+			if (strcmp(country_code, DEF_COUNTRY_CODE) != 0) {
+				list = (wl_uint32_list_t *)(void *)chan_buf;
+				list->count = htod32(WL_NUMCHANNELS);
+				if ((error = dev_wlc_ioctl(dev, WLC_GET_VALID_CHANNELS, chan_buf, sizeof(chan_buf)))) {
+					WL_ERROR(("%s: get channel list fail!\n", __FUNCTION__));
+					goto exit_failed;
+				}
+				/* if NULL, set default country code instead and set country code again */
+				WL_TRACE(("%s: channel_count = %d\n", __FUNCTION__, list->count));
+				if (list->count == 0) {
+					strcpy(country_code, DEF_COUNTRY_CODE);
+					retry = 0;
+					goto get_channel_retry;
+				}
+			}
 			goto exit;
+		}
+		/* may be the country code is not supported, set default country */
+		else {
+			if (strcmp(country_code, DEF_COUNTRY_CODE) != 0) {
+				WL_ERROR(("%s: set country for %s as %s rev %d failed\n",
+							__FUNCTION__, country_code, cspec.ccode, cspec.rev));
+				strcpy(country_code, DEF_COUNTRY_CODE);
+				retry = 0;
+				goto get_channel_retry;
+			}
 		}
 	}
 
-	WL_ERROR(("%s: set country %s failed code %d\n", __FUNCTION__, country_code, error));
+	WL_ERROR(("%s: set country for %s as %s rev %d failed\n",
+				__FUNCTION__, country_code, cspec.ccode, cspec.rev));
+
+exit_failed:
 	p += snprintf(p, MAX_WX_STRING, "FAIL");
 
 exit:
 	wrqu->data.length = p - extra + 1;
 	return error;
 }
+
+//HTC_CSP_START
+int dhd_set_project(char * project, int project_len)
+{
+
+        if ((project_len < 1) || (project_len > 32)) {
+                printf("Invaild project name length!\n");
+                return -1;
+        }
+
+        strncpy(project_type, project, project_len);
+	WL_DEFAULT(("%s: set project type: %s\n", __FUNCTION__, project_type));
+
+        return 0;
+}
+
+static int
+wl_iw_set_project(
+        struct net_device *dev,
+        struct iw_request_info *info,
+        union iwreq_data *wrqu,
+        char *extra
+)
+{
+        char project[33];
+        char *p = extra;
+        int project_offset;
+        int project_size;
+
+        WL_TRACE(("%s\n", __FUNCTION__));
+
+        memset(project, 0, sizeof(project));
+
+        project_offset = strcspn(extra, " ");
+        project_size = strlen(extra) - project_offset;
+
+        if (project_offset == 0) {
+                WL_ERROR(("%s, no project specified\n", __FUNCTION__));
+                return 0;
+        }
+
+        if (project_size > 32) {
+                WL_ERROR(("%s: project name is too long: %s\n", __FUNCTION__,
+                                        (char *)extra + project_offset + 1));
+                return 0;
+        }
+
+        strncpy(project, extra + project_offset + 1,
+                        MIN(project_size, sizeof(project)));
+
+        WL_DEFAULT(("%s: set project: %s\n", __FUNCTION__, project));
+        dhd_set_project(project, project_size);
+
+        p += snprintf(p, MAX_WX_STRING, "OK");
+        wrqu->data.length = p - extra + 1;
+
+	return 0;
+}
+
+#ifdef BCM4329_LOW_POWER
+static int
+wl_iw_set_lowpowermode(
+	struct net_device *dev,
+	struct iw_request_info *info,
+	union iwreq_data *wrqu,
+	char *extra
+)
+{
+	char *p = extra;
+	char *s;
+	int set_val;
+
+	WL_TRACE(("%s\n", __func__));
+	s = extra + strlen("SET_LOWPOWERMODE") + 1;
+	set_val = bcm_atoi(s);
+
+	/* 1. change power mode
+	* 2. change dtim listen interval
+	* 3. lock/unlock cpu freq
+	*/
+
+	switch (set_val) {
+	case 0:
+		printf("LowPowerMode: %d\n", set_val);
+		LowPowerMode = 0;
+		break;
+	case 1:
+		printf("LowPowerMode: %d\n", set_val);
+		LowPowerMode = 1;
+		break;
+	default:
+		WL_ERROR(("%s: not support mode: %d\n", __func__, set_val));
+		break;
+
+	}
+
+	p += snprintf(p, MAX_WX_STRING, "OK");
+	wrqu->data.length = p - extra + 1;
+	return 0;
+}
+#endif /* #ifdef BCM4329_LOW_POWER */
+//HTC_CSP_END
 
 static int active_level = -80;
 static int active_period = 20000; //in mini secs
@@ -2059,7 +2195,7 @@ exit_proc:
 #else
 #define TRAFFIC_HIGH_WATER_MARK	        2300 *(3000/1000)
 #endif
-#define TRAFFIC_LOW_WATER_MARK          256 * (3000/1000)
+#define TRAFFIC_LOW_WATER_MARK          800 * (3000/1000)
 typedef enum traffic_ind {
 	TRAFFIC_STATS_HIGH = 0,
 	TRAFFIC_STATS_NORMAL,
@@ -2070,6 +2206,11 @@ static unsigned long current_traffic_count = 0;
 static unsigned long last_traffic_count = 0;
 
 extern struct perf_lock wlan_perf_lock;
+#ifdef CONFIG_MACH_VERDI_LTE
+extern void enable_hlt(void);
+extern void disable_hlt(void);
+#endif
+
 static void wl_iw_traffic_monitor(struct net_device *dev)
 {
         unsigned long rx_packets_count = 0;
@@ -2085,15 +2226,29 @@ static void wl_iw_traffic_monitor(struct net_device *dev)
             if (traffic_stats_flag == TRAFFIC_STATS_NORMAL) {
                 if (traffic_diff > TRAFFIC_HIGH_WATER_MARK) {
                     traffic_stats_flag = TRAFFIC_STATS_HIGH;
-                    if (!is_perf_lock_active(&wlan_perf_lock))
-			perf_lock(&wlan_perf_lock);
+#ifdef CONFIG_PERFLOCK
+                    if (!is_perf_lock_active(&wlan_perf_lock)){
+			            perf_lock(&wlan_perf_lock);
+#ifdef CONFIG_MACH_VERDI_LTE
+                        disable_hlt();
+                        printf("lock cpu && disable_hlt\n");
+#endif
+                    }
+#endif
                     printf("lock cpu here, traffic-count=%ld\n", traffic_diff / 3);
                 }
             } else {
                 if (traffic_diff < TRAFFIC_LOW_WATER_MARK) {
                     traffic_stats_flag = TRAFFIC_STATS_NORMAL;
-                    if (is_perf_lock_active(&wlan_perf_lock))
+#ifdef CONFIG_PERFLOCK
+                    if (is_perf_lock_active(&wlan_perf_lock)){
                         perf_unlock(&wlan_perf_lock);
+#ifdef CONFIG_MACH_VERDI_LTE
+                        enable_hlt();
+                        printf("unlock cpu && enable_hlt\n");
+#endif
+                    }
+#endif
                     printf("unlock cpu here, traffic-count=%ld\n", traffic_diff / 3);
                 }
             }
@@ -3394,7 +3549,6 @@ wl_iw_set_wap(
 		return -EINVAL;
 	}
 
-	
 	if (ETHER_ISBCAST(awrq->sa_data) || ETHER_ISNULLADDR(awrq->sa_data)) {
 		scb_val_t scbval;
 		
@@ -6684,6 +6838,13 @@ wl_iw_combined_scan_set(struct net_device *dev, wlc_ssid_t* ssids_local, int nss
 	int i;
 	iscan_info_t *iscan = g_iscan;
 
+/* HTC_CSP_START */
+	int cscan_retry_cnt = 0;
+	scb_val_t scbval;
+	int assoc_inprogress = 0;
+	int error = 0;
+	int scan_assoc_retry_cnt = 0;
+/* HTC_CSP_END */
 	WL_TRACE(("%s nssid=%d nchan=%d\n", __FUNCTION__, nssid, nchan));
 
 #ifdef HTC_KlocWork
@@ -6695,6 +6856,22 @@ wl_iw_combined_scan_set(struct net_device *dev, wlc_ssid_t* ssids_local, int nss
 		err = -1;
 		goto exit;
 	}
+
+/* HTC_CSP_START */
+scan_assoc_retry:
+	/* check if in assoc */
+	error = dev_wlc_intvar_get(dev, "assoc_state", &assoc_inprogress);
+	if (error) {
+		WL_TRACE(("assoc_state not support!\n"));
+	} else {
+		if (assoc_inprogress && (scan_assoc_retry_cnt < 3)) {
+			WL_ERROR(("associating, skip %d\n", scan_assoc_retry_cnt));
+			bcm_mdelay(1000);
+			scan_assoc_retry_cnt++;
+			goto scan_assoc_retry;
+		}
+	}
+/* HTC_CSP_END */
 
 #ifdef PNO_SUPPORT
 	
@@ -6742,6 +6919,12 @@ wl_iw_combined_scan_set(struct net_device *dev, wlc_ssid_t* ssids_local, int nss
 
 	iscan->timer_on = 1;
 
+/* HTC_CSP_START */
+	if (iscan->iscan_ex_params_p->params.passive_time != 30 && iscan->iscan_ex_params_p->params.passive_time != -1) {
+		iscan->iscan_ex_params_p->params.passive_time = 100;
+	}
+/* HTC_CSP_END */
+
 #ifdef SCAN_DUMP
 	{
 		int i;
@@ -6773,10 +6956,28 @@ wl_iw_combined_scan_set(struct net_device *dev, wlc_ssid_t* ssids_local, int nss
 			err = -1;
 	}
 
+/* HTC_CSP_START */
+cscan_retry:
+/* HTC_CSP_END */
 	if ((err = dev_iw_iovar_setbuf(dev, "iscan", iscan->iscan_ex_params_p, \
 			iscan->iscan_ex_param_size, \
 			iscan->ioctlbuf, sizeof(iscan->ioctlbuf)))) {
-			WL_ERROR(("Set ISCAN for %s failed with %d\n", __FUNCTION__, err));
+/* HTC_CSP_START */
+			WL_ERROR(("Set ISCAN for %s failed with %d, retry %d\n", __func__, err, cscan_retry_cnt));
+			/* It sometimes has conflic between disassoc and scan, it will let scan always return busy
+			   If scan return busy, we will disassoc again
+			*/
+			if (err == BCME_BUSY) {
+				if (cscan_retry_cnt < 3) {
+					cscan_retry_cnt++;
+					bcm_mdelay(500);
+					goto cscan_retry;
+				} else {
+					bzero(&scbval, sizeof(scb_val_t));
+					(void) dev_wlc_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t));
+				}
+			}
+/* HTC_CSP_END */
 			err = -1;
 	}
 
@@ -7287,6 +7488,7 @@ static int set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 	int res = 0;
 	int apsta_var = 0;
 	int closednet = 0;
+	wl_country_t cspec = {{0}, 0, {0}};
 #ifndef AP_ONLY
 	int iolen = 0;
 	int bsscfg_index = 1;
@@ -7306,8 +7508,9 @@ static int set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 	WL_SOFTAP(("wl_iw: set ap profile:\n"));
 	WL_SOFTAP(("	ssid = '%s'\n", ap->ssid));
 	WL_SOFTAP(("	security = '%s'\n", ap->sec));
-	if (ap->key[0] != '\0')
-		WL_SOFTAP(("	key = '%s'\n", ap->key));
+	/* if (ap->key[0] != '\0')
+	 *	WL_SOFTAP(("	key = '%s'\n", ap->key));
+	 */
 	WL_SOFTAP(("	channel = %d\n", ap->channel));
 	WL_SOFTAP(("	max scb = %d\n", ap->max_scb));
 	WL_SOFTAP(("	hidden = %d\n", ap->closednet));
@@ -7403,7 +7606,11 @@ static int set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 			ap->country_code, sizeof(ap->country_code))) >= 0) {
 			WL_SOFTAP(("%s: set country %s OK\n",
 				__FUNCTION__, ap->country_code));
-			dhd_bus_country_set(dev, &ap->country_code[0]);
+			cspec.rev = -1;
+			memcpy(cspec.country_abbrev, ap->country_code, WLC_CNTRY_BUF_SZ);
+			memcpy(cspec.ccode, ap->country_code, WLC_CNTRY_BUF_SZ);
+			get_customized_country_code((char *)&cspec.country_abbrev, &cspec);
+			dhd_bus_country_set(dev, &cspec);
 		} else {
 			WL_ERROR(("%s: ERROR:%d setting country %s\n",
 				__FUNCTION__, error, ap->country_code));
@@ -7550,9 +7757,9 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 	WL_SOFTAP(("wl_iw: set ap profile:\n"));
 	WL_SOFTAP(("	ssid = '%s'\n", ap->ssid));
 	WL_SOFTAP(("	security = '%s'\n", ap->sec));
-	if (ap->key[0] != '\0') {
+	/* if (ap->key[0] != '\0') {
 		WL_SOFTAP(("	key = '%s'\n", ap->key));
-	}
+	} */
 	WL_SOFTAP(("	channel = %d\n", ap->channel));
 	WL_SOFTAP(("	max scb = %d\n", ap->max_scb));
 
@@ -7768,7 +7975,7 @@ int get_parmeter_from_string(
 				
 				param_max_len = param_max_len >> 1;  
 #ifdef HTC_KlocWork
-			if (param_str_begin != NULL)
+			if(param_str_begin != NULL)
 #endif
 				hstr_2_buf(param_str_begin, buf, param_max_len);
 				print_buf(buf, param_max_len, 0);
@@ -8585,6 +8792,10 @@ static int wl_iw_set_priv(
 			ret = wl_iw_get_band(dev, info, (union iwreq_data *)dwrq, extra);
 	    else if (strnicmp(extra, BAND_SET_CMD, strlen(BAND_SET_CMD)) == 0)
 			ret = wl_iw_set_band(dev, info, (union iwreq_data *)dwrq, extra);
+		else if (strnicmp(extra, "GETBAND", strlen("GETBAND")) == 0)
+			ret = wl_iw_get_band(dev, info, (union iwreq_data *)dwrq, extra);
+		else if (strnicmp(extra, "SETBAND", strlen("SETBAND")) == 0)
+			ret = wl_iw_set_band(dev, info, (union iwreq_data *)dwrq, extra);
 	    else if (strnicmp(extra, DTIM_SKIP_GET_CMD, strlen(DTIM_SKIP_GET_CMD)) == 0)
 			ret = wl_iw_get_dtim_skip(dev, info, (union iwreq_data *)dwrq, extra);
 	    else if (strnicmp(extra, DTIM_SKIP_SET_CMD, strlen(DTIM_SKIP_SET_CMD)) == 0)
@@ -8658,26 +8869,23 @@ static int wl_iw_set_priv(
 		else if (strnicmp(extra, "RXFILTER-ADD", strlen("RXFILTER-ADD")) == 0 ||
 			strnicmp(extra, "RXFILTER-REMOVE", strlen("RXFILTER-REMOVE")) == 0) {
 #ifdef BCM4329_LOW_POWER
-			struct dd_pkt_filter_s *data = (struct dd_pkt_filter_s *)&extra[32];
-			 if ((data->id == ALLOW_IPV6_MULTICAST) || (data->id == ALLOW_IPV4_MULTICAST))
-			 {
-
-			     if (strnicmp(extra, "RXFILTER-ADD", strlen("RXFILTER-ADD")) == 0)
-			     {
-			         WL_TRACE(("RXFILTER-ADD MULTICAST filter\n"));
-			         allowMulticast = false;
-			     }
-			     else
-			     {
-			          WL_TRACE(("RXFILTER-REMOVE MULTICAST filter\n"));
-			          allowMulticast = true;
-			     }
-			 }
+			if (LowPowerMode == 1) {
+				struct dd_pkt_filter_s *data = (struct dd_pkt_filter_s *)&extra[32];
+				if ((data->id == ALLOW_IPV6_MULTICAST) || (data->id == ALLOW_IPV4_MULTICAST)) {
+					if (strnicmp(extra, "RXFILTER-ADD", strlen("RXFILTER-ADD")) == 0) {
+						WL_TRACE(("RXFILTER-ADD MULTICAST filter\n"));
+						allowMulticast = false;
+					} else {
+						WL_TRACE(("RXFILTER-REMOVE MULTICAST filter\n"));
+						allowMulticast = true;
+					}
+				}
+			}
 #endif
 			wl_iw_set_pktfilter(dev, (struct dd_pkt_filter_s *)&extra[32]);
 		}
 #ifdef BCM4329_LOW_POWER
-		else if (strnicmp(extra, "GATEWAY-ADD", strlen("GATEWAY-ADD")) == 0) {
+		else if ((strnicmp(extra, "GATEWAY-ADD", strlen("GATEWAY-ADD")) == 0) && (LowPowerMode == 1)) {
 			int i;
 			WL_TRACE(("Driver GET GATEWAY-ADD CMD!!!\n"));
 			sscanf(extra+12,"%d",&i);
@@ -8710,6 +8918,18 @@ static int wl_iw_set_priv(
 			WL_TRACE(("SET_PRB_REQ\n"));
 			wl_iw_set_probe_request_ie(dev, (extra + PROFILE_OFFSET), dwrq->length-PROFILE_OFFSET);
                 }
+                //HTC_CSP_START
+                else if (strnicmp(extra, "SET_PROJECT", strlen("SET_PROJECT")) == 0) {
+                        WL_TRACE(("SET_PROJECT\n"));
+                        wl_iw_set_project(dev, info, (union iwreq_data *)dwrq, extra);
+                }
+#ifdef BCM4329_LOW_POWER
+		else if (strnicmp(extra, "SET_LOWPOWERMODE", strlen("SET_LOWPOWERMODE")) == 0) {
+			WL_TRACE(("SET_LOWPOWERMODE\n"));
+			wl_iw_set_lowpowermode(dev, info, (union iwreq_data *)dwrq, extra);
+		}
+#endif
+                //HTC_CSP_END
 	    else {
 			WL_TRACE(("Unknown PRIVATE command %s\n", extra));
 			snprintf(extra, MAX_WX_STRING, "OK");
@@ -9506,6 +9726,9 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 #ifdef WLC_E_RSSI_LOW 
 	case WLC_E_RSSI_LOW:
 		printf("Recevied RSSI LOW event!\n");
+		//HTC_CSP_START
+		net_os_send_rssilow_message(dev);
+		//HTC_CSP_END
 		break;
 #endif
 //HTC_CSP_START
@@ -9514,7 +9737,7 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 		if (datalen > IW_CUSTOM_MAX)
 			break;
 
-
+#ifdef CONFIG_PERFLOCK
 		if (status) {
 			printf("HIGH INDICATE!!\n");
 			if (!is_perf_lock_active(&wlan_perf_lock))
@@ -9524,6 +9747,7 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 			if (is_perf_lock_active(&wlan_perf_lock))
 				perf_unlock(&wlan_perf_lock);
 		}
+#endif
 		break;
 //HTC_CSP_END
 	case WLC_E_SCAN_COMPLETE:
@@ -9878,6 +10102,11 @@ wl_iw_sta_restart(struct net_device *dev)
                 return;
         }
 
+	if (!module_insert) {
+		WL_ERROR(("%s: module has not been inserted successfully, skip restart!\n", __FUNCTION__));
+		return;
+	}
+
         iw = *(wl_iw_t **)netdev_priv(dev);
 
         if (!iw) {
@@ -9887,6 +10116,10 @@ wl_iw_sta_restart(struct net_device *dev)
 
 	dhd_os_start_lock(iw->pub);
 
+	if (dev_wlc_ioctl_off == 1) {
+		dhd_os_start_unlock(iw->pub);
+		return;
+	}
 #if defined(WL_IW_USE_ISCAN)
         g_iscan->iscan_state = ISCAN_STATE_IDLE;
 #endif
@@ -9964,6 +10197,10 @@ static void wl_iw_ap_restart(void)
 static void wl_iw_restart(struct net_device *dev)
 {
 	wl_iw_sta_restart(dev);
+
+	if (dev_wlc_ioctl_off == 1) {
+		return;
+	}
 	if ( ap_cfg_running ) 
 		wl_iw_ap_restart();
 

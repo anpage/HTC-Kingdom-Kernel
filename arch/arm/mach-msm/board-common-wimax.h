@@ -50,5 +50,10 @@ int mmc_wimax_set_wimax_FW_freeze_WK_RX(int on);
 int mmc_wimax_get_wimax_FW_freeze_WK_RX(void);
 int mmc_wimax_set_wimax_FW_freeze_WK_TX(int on);
 int mmc_wimax_get_wimax_FW_freeze_WK_TX(void);
+
+void mmc_wimax_set_FWWakeupHostEvent(int on);
+int mmc_wimax_get_FWWakeupHostEvent(void);
+void mmc_wimax_set_HostWakeupFWEvent(int on);
+int mmc_wimax_get_HostWakeupFWEvent(void);
 #endif
 

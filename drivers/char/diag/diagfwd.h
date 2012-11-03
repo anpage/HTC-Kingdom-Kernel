@@ -1,57 +1,54 @@
-/* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
+
+/* Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 
 #ifndef DIAGFWD_H
 #define DIAGFWD_H
-#include <mach/msm_smd.h>
 
-int diagfwd_init(void);
+#define NO_PROCESS	0
+#define NON_APPS_PROC	-1
+
+#define DIAGLOG_MODE_NONE 0
+#define DIAGLOG_MODE_HEAD 1
+#define DIAGLOG_MODE_FULL 2
+#define DIAGLOG_MODE_PING 3
+
+void diagfwd_init(void);
 void diagfwd_exit(void);
 void diag_process_hdlc(void *data, unsigned len);
 void __diag_smd_send_req(void);
 void __diag_smd_qdsp_send_req(void);
+void __diag_smd_wcnss_send_req(void);
 void diag_usb_legacy_notifier(void *, unsigned, struct diag_request *);
+long diagchar_ioctl(struct file *, unsigned int, unsigned long);
 int diag_device_write(void *, int, struct diag_request *);
 int mask_request_validate(unsigned char mask_buf[]);
+int chk_config_get_id(void);
+void diag_clear_reg(int);
 
 /* State for diag forwarding */
 #ifdef CONFIG_DIAG_OVER_USB
 int diagfwd_connect(void);
 int diagfwd_disconnect(void);
 #endif
+extern int diag_support_mdm9k;
 extern int diag_debug_buf_idx;
 extern unsigned char diag_debug_buf[1024];
-
+extern unsigned diag7k_debug_mask;
+extern unsigned diag9k_debug_mask;
 
 #define SMD_FUNC_CLOSE 0
 #define SMD_FUNC_OPEN_DIAG 1
 #define SMD_FUNC_OPEN_BT 2
-void diag_smd_enable(smd_channel_t * ch, char *src, int mode);
+void diag_smd_enable(smd_channel_t *ch, char *src, int mode);
 
 #endif

@@ -74,10 +74,7 @@ ktime_t alarm_get_elapsed_realtime(void);
 
 /* set rtc while preserving elapsed realtime */
 int alarm_set_rtc(const struct timespec ts);
-
-#ifdef CONFIG_BUILD_CIQ
-int alarm_get_elapsed_ticks(struct timespec *ts);
-#endif
+void alarm_update_timedelta(struct timespec tv, struct timespec ts);
 
 #endif
 
@@ -98,6 +95,10 @@ enum android_alarm_return_flags {
 /* Ack last alarm and wait for next */
 #define ANDROID_ALARM_WAIT                  _IO('a', 1)
 
+#ifdef CONFIG_ANDROID_RTC_CHANGE_WAIT
+#define ANDROID_RTC_CHANGE_WAIT             _IO('a', 2)
+#endif
+
 #define ALARM_IOW(c, type, size)            _IOW('a', (c) | ((type) << 4), size)
 /* Set alarm */
 #define ANDROID_ALARM_SET(type)             ALARM_IOW(2, type, struct timespec)
@@ -106,10 +107,5 @@ enum android_alarm_return_flags {
 #define ANDROID_ALARM_SET_RTC               _IOW('a', 5, struct timespec)
 #define ANDROID_ALARM_BASE_CMD(cmd)         (cmd & ~(_IOC(0, 0, 0xf0, 0)))
 #define ANDROID_ALARM_IOCTL_TO_TYPE(cmd)    (_IOC_NR(cmd) >> 4)
-
-#ifdef CONFIG_BUILD_CIQ
-/* device:IQPortingSysem_Linux.cpp */
-#define ANDROID_ALARM_GET_TICKS(type)       ALARM_IOW(10, type, struct timespec)
-#endif
 
 #endif

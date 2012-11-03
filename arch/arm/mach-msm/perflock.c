@@ -39,11 +39,16 @@ enum {
 
 static LIST_HEAD(active_perf_locks);
 static LIST_HEAD(inactive_perf_locks);
+static LIST_HEAD(active_cpufreq_ceiling_locks);
+static LIST_HEAD(inactive_cpufreq_ceiling_locks);
 static DEFINE_SPINLOCK(list_lock);
 static DEFINE_SPINLOCK(policy_update_lock);
 static int initialized;
+static int cpufreq_ceiling_initialized;
 static unsigned int *perf_acpu_table;
+static unsigned int *cpufreq_ceiling_acpu_table;
 static unsigned int table_size;
+static struct workqueue_struct *perflock_workqueue;
 
 
 #ifdef CONFIG_PERF_LOCK_DEBUG
@@ -52,10 +57,16 @@ static int debug_mask = PERF_LOCK_DEBUG | PERF_EXPIRE_DEBUG |
 #else
 static int debug_mask = 0;
 #endif
-module_param_call(debug_mask, param_set_int, param_get_int,
-		&debug_mask, S_IWUSR | S_IRUGO);
+
+static struct kernel_param_ops param_ops_str = {
+	.set = param_set_int,
+	.get = param_get_int,
+};
+
+module_param_cb(debug_mask, &param_ops_str, &debug_mask, S_IWUSR | S_IRUGO);
 
 static unsigned int get_perflock_speed(void);
+static unsigned int get_cpufreq_ceiling_speed(void);
 static void print_active_locks(void);
 
 #ifdef CONFIG_PERFLOCK_SCREEN_POLICY
@@ -190,7 +201,8 @@ static int perflock_notifier_call(struct notifier_block *self,
 			       unsigned long event, void *data)
 {
 	struct cpufreq_policy *policy = data;
-	unsigned int lock_speed;
+	unsigned int lock_speed = 0;
+	unsigned int cpufreq_ceiling_speed = 0;
 	unsigned long irqflags;
 	unsigned int policy_min = per_cpu(stored_policy_min, policy->cpu);
 	unsigned int policy_max = per_cpu(stored_policy_max, policy->cpu);
@@ -225,13 +237,8 @@ static int perflock_notifier_call(struct notifier_block *self,
 		}
 #endif
 		lock_speed = get_perflock_speed() / 1000;
-		if (policy->min != lock_speed && policy->min < policy->max
-				&& policy->max == policy_max) {
-			policy_min = policy->min;
-		}
-		if (policy->max != policy_max && policy->max >= policy_min) {
-			policy_max = policy->max ;
-		}
+		if (!lock_speed)
+			cpufreq_ceiling_speed = get_cpufreq_ceiling_speed() / 1000;
 
 		if (lock_speed) {
 			if (lock_speed > policy_max)
@@ -243,19 +250,41 @@ static int perflock_notifier_call(struct notifier_block *self,
 					__func__, lock_speed);
 				print_active_locks();
 			}
-		} else {
+		} else if (cpufreq_ceiling_speed) {
+			if (cpufreq_ceiling_speed > policy_max)
+				cpufreq_ceiling_speed = policy_max;
+			policy->max = cpufreq_ceiling_speed;
 			policy->min = policy_min;
+			if (debug_mask & PERF_CPUFREQ_LOCK_DEBUG) {
+				pr_info("%s: cpufreq_ceiling speed %d\n",
+					__func__, cpufreq_ceiling_speed);
+				print_active_locks();
+			}
+		} else {
 			policy->max = policy_max;
+			policy->min = policy_min;
 			if (debug_mask & PERF_CPUFREQ_LOCK_DEBUG)
-				pr_info("%s: cpufreq recover policy %d %d\n",
-						__func__, policy->min, policy->max);
+				pr_info("%s: cpufreq recover policy %d %d\n"
+						, __func__, policy->min, policy->max);
 		}
-		per_cpu(stored_policy_min, policy->cpu) = policy_min;
-		per_cpu(stored_policy_max, policy->cpu) = policy_max;
 	}
 	spin_unlock_irqrestore(&policy_update_lock, irqflags);
 
 	return 0;
+}
+
+void perflock_scaling_max_freq(unsigned int freq, unsigned int cpu)
+{
+	if (debug_mask & PERF_LOCK_DEBUG)
+		pr_info("%s, freq=%u, cpu%u\n", __func__, freq, cpu);
+	per_cpu(stored_policy_max, cpu) = freq;
+}
+
+void perflock_scaling_min_freq(unsigned int freq, unsigned int cpu)
+{
+	if (debug_mask & PERF_LOCK_DEBUG)
+		pr_info("%s, freq=%u, cpu%u\n", __func__, freq, cpu);
+	per_cpu(stored_policy_min, cpu) = freq;
 }
 
 static struct notifier_block perflock_notifier = {
@@ -282,6 +311,26 @@ static unsigned int get_perflock_speed(void)
 	return perf_acpu_table[perf_level];
 }
 
+static unsigned int get_cpufreq_ceiling_speed(void)
+{
+	unsigned long irqflags;
+	struct perf_lock *lock;
+	unsigned int perf_level = 0;
+
+	/* Get the maxmimum perf level. */
+	if (list_empty(&active_cpufreq_ceiling_locks))
+		return 0;
+
+	spin_lock_irqsave(&list_lock, irqflags);
+	list_for_each_entry(lock, &active_cpufreq_ceiling_locks, link) {
+		if (lock->level > perf_level)
+			perf_level = lock->level;
+	}
+	spin_unlock_irqrestore(&list_lock, irqflags);
+
+	return cpufreq_ceiling_acpu_table[perf_level];
+}
+
 static void print_active_locks(void)
 {
 	unsigned long irqflags;
@@ -291,27 +340,41 @@ static void print_active_locks(void)
 	list_for_each_entry(lock, &active_perf_locks, link) {
 		pr_info("active perf lock '%s'\n", lock->name);
 	}
+	list_for_each_entry(lock, &active_cpufreq_ceiling_locks, link) {
+		pr_info("active cpufreq_ceiling_locks '%s'\n", lock->name);
+	}
 	spin_unlock_irqrestore(&list_lock, irqflags);
 }
 
-#ifdef CONFIG_ARCH_MSM8X60_LTE
 void htc_print_active_perf_locks(void)
 {
 	unsigned long irqflags;
 	struct perf_lock *lock;
 
 	spin_lock_irqsave(&list_lock, irqflags);
-	if(!list_empty(&active_perf_locks)){
-		printk("perf_lock:");
+	if (!list_empty(&active_perf_locks)) {
+		pr_info("perf_lock:");
 		list_for_each_entry(lock, &active_perf_locks, link) {
-			printk(" '%s' ", lock->name);
+			pr_info(" '%s' ", lock->name);
 		}
-		printk("\n");
+		pr_info("\n");
+	}
+	if (!list_empty(&active_cpufreq_ceiling_locks)) {
+		printk(KERN_WARNING"perf_lock:");
+		list_for_each_entry(lock, &active_cpufreq_ceiling_locks, link) {
+			printk(KERN_WARNING" '%s' ", lock->name);
+		}
+		pr_info("\n");
 	}
 	spin_unlock_irqrestore(&list_lock, irqflags);
 }
-#endif
 
+void perf_lock_init_v2(struct perf_lock *lock,
+			unsigned int level, const char *name)
+{
+	lock->type = TYPE_CPUFREQ_CEILING;
+	perf_lock_init(lock, level, name);
+}
 /**
  * perf_lock_init - acquire a perf lock
  * @lock: perf lock to acquire
@@ -341,7 +404,10 @@ void perf_lock_init(struct perf_lock *lock,
 
 	INIT_LIST_HEAD(&lock->link);
 	spin_lock_irqsave(&list_lock, irqflags);
-	list_add(&lock->link, &inactive_perf_locks);
+	if (lock->type == TYPE_PERF_LOCK)
+		list_add(&lock->link, &inactive_perf_locks);
+	if (lock->type == TYPE_CPUFREQ_CEILING)
+		list_add(&lock->link, &inactive_cpufreq_ceiling_locks);
 	spin_unlock_irqrestore(&list_lock, irqflags);
 }
 EXPORT_SYMBOL(perf_lock_init);
@@ -357,21 +423,39 @@ void perf_lock(struct perf_lock *lock)
 	unsigned long irqflags;
 	int cpu;
 
-	WARN_ON(!initialized);
 	WARN_ON((lock->flags & PERF_LOCK_INITIALIZED) == 0);
 	WARN_ON(lock->flags & PERF_LOCK_ACTIVE);
+	if (lock->type == TYPE_PERF_LOCK) {
+		WARN_ON(!initialized);
+		if (!initialized) {
+			if (debug_mask & PERF_LOCK_DEBUG)
+				pr_info("%s exit because perflock is not initialized\n", __func__);
+			return;
+		}
+	} else if (lock->type == TYPE_CPUFREQ_CEILING) {
+		WARN_ON(!cpufreq_ceiling_initialized);
+		if (!cpufreq_ceiling_initialized) {
+			if (debug_mask & PERF_LOCK_DEBUG)
+				pr_info("%s exit because cpufreq_ceiling is not initialized\n", __func__);
+			return;
+		}
+	}
 
 	spin_lock_irqsave(&list_lock, irqflags);
 	if (debug_mask & PERF_LOCK_DEBUG)
-		pr_info("%s: '%s', flags %d level %d\n",
-			__func__, lock->name, lock->flags, lock->level);
+		pr_info("%s: '%s', flags %d level %d type %u\n",
+			__func__, lock->name, lock->flags, lock->level, lock->type);
 	if (lock->flags & PERF_LOCK_ACTIVE) {
-		pr_err("%s: over-locked\n", __func__);
+		pr_err("%s:type(%u) over-locked\n", __func__, lock->type);
+		spin_unlock_irqrestore(&list_lock, irqflags);
 		return;
 	}
 	lock->flags |= PERF_LOCK_ACTIVE;
 	list_del(&lock->link);
-	list_add(&lock->link, &active_perf_locks);
+	if (lock->type == TYPE_PERF_LOCK)
+		list_add(&lock->link, &active_perf_locks);
+	else if (lock->type == TYPE_CPUFREQ_CEILING)
+		list_add(&lock->link, &active_cpufreq_ceiling_locks);
 	spin_unlock_irqrestore(&list_lock, irqflags);
 
 	/* Update cpufreq policy - scaling_min/scaling_max */
@@ -427,6 +511,22 @@ void perf_unlock(struct perf_lock *lock)
 
 	WARN_ON(!initialized);
 	WARN_ON((lock->flags & PERF_LOCK_ACTIVE) == 0);
+	if (lock->type == TYPE_PERF_LOCK) {
+		WARN_ON(!initialized);
+		if (!initialized) {
+			if (debug_mask & PERF_LOCK_DEBUG)
+				pr_info("%s exit because perflock is not initialized\n", __func__);
+			return;
+		}
+	}
+	if (lock->type == TYPE_CPUFREQ_CEILING) {
+		WARN_ON(!cpufreq_ceiling_initialized);
+		if (!cpufreq_ceiling_initialized) {
+			if (debug_mask & PERF_LOCK_DEBUG)
+				pr_info("%s exit because cpufreq_ceiling is not initialized\n", __func__);
+			return;
+		}
+	}
 
 	spin_lock_irqsave(&list_lock, irqflags);
 	if (debug_mask & PERF_LOCK_DEBUG)
@@ -434,16 +534,22 @@ void perf_unlock(struct perf_lock *lock)
 			__func__, lock->name, lock->flags, lock->level);
 	if (!(lock->flags & PERF_LOCK_ACTIVE)) {
 		pr_err("%s: under-locked\n", __func__);
+		spin_unlock_irqrestore(&list_lock, irqflags);
 		return;
 	}
 	lock->flags &= ~PERF_LOCK_ACTIVE;
 	list_del(&lock->link);
-	list_add(&lock->link, &inactive_perf_locks);
+	if (lock->type == TYPE_PERF_LOCK)
+		list_add(&lock->link, &inactive_perf_locks);
+	else if (lock->type == TYPE_CPUFREQ_CEILING)
+		list_add(&lock->link, &inactive_cpufreq_ceiling_locks);
+
 	spin_unlock_irqrestore(&list_lock, irqflags);
 
 	/* Prevent lock/unlock quickly, add a timeout to release perf_lock */
-	schedule_delayed_work(&work_expire_perf_locks,
+	queue_delayed_work(perflock_workqueue, &work_expire_perf_locks,
 			PERF_UNLOCK_DELAY);
+
 }
 EXPORT_SYMBOL(perf_unlock);
 
@@ -495,9 +601,42 @@ static void perf_acpu_table_fixup(void)
 	}
 
 	if (table_size >= 1)
-		if(perf_acpu_table[table_size - 1] < policy_max * 1000)
+		if (perf_acpu_table[table_size - 1] < policy_max * 1000)
 			perf_acpu_table[table_size - 1] = policy_max * 1000;
 }
+
+static void cpufreq_ceiling_acpu_table_fixup(void)
+{
+	int i;
+	for (i = 0; i < table_size; ++i) {
+		if (cpufreq_ceiling_acpu_table[i] > policy_max * 1000)
+			cpufreq_ceiling_acpu_table[i] = policy_max * 1000;
+		else if (cpufreq_ceiling_acpu_table[i] < policy_min * 1000)
+			cpufreq_ceiling_acpu_table[i] = policy_min * 1000;
+	}
+}
+
+/* initialize local stored policy min/max */
+static inline void init_local_freq_policy(unsigned int cpu_min
+		, unsigned int cpu_max)
+{
+	int cpu;
+	if (unlikely(per_cpu(stored_policy_max, 0) == 0)) {
+		if (debug_mask & PERF_LOCK_DEBUG)
+			pr_info("%s, initialize max%u\n", __func__, cpu_max);
+		for_each_present_cpu(cpu) {
+			per_cpu(stored_policy_max, cpu) = policy_max;
+		}
+	}
+	if (unlikely(per_cpu(stored_policy_min, 0) == 0)) {
+		if (debug_mask & PERF_LOCK_DEBUG)
+			pr_info("%s, initilize min=%u\n", __func__, cpu_min);
+		for_each_present_cpu(cpu) {
+			per_cpu(stored_policy_min, cpu) = policy_min;
+		}
+	}
+}
+
 
 void __init perflock_init(struct perflock_platform_data *pdata)
 {
@@ -521,7 +660,9 @@ void __init perflock_init(struct perflock_platform_data *pdata)
 
 	perf_acpu_table_fixup();
 	cpufreq_register_notifier(&perflock_notifier, CPUFREQ_POLICY_NOTIFIER);
+	perflock_workqueue = create_singlethread_workqueue("perflock_wq");
 
+	init_local_freq_policy(policy_min, policy_max);
 	initialized = 1;
 
 #ifdef CONFIG_PERFLOCK_BOOT_LOCK
@@ -537,4 +678,36 @@ void __init perflock_init(struct perflock_platform_data *pdata)
 invalid_config:
 	pr_err("%s: invalid configuration data, %p %d %d\n", __func__,
 		perf_acpu_table, table_size, PERF_LOCK_INVALID);
+}
+
+void __init cpufreq_ceiling_init(struct perflock_platform_data *pdata)
+{
+	struct cpufreq_policy policy;
+	struct cpufreq_frequency_table *table =
+		cpufreq_frequency_get_table(smp_processor_id());
+
+	BUG_ON(cpufreq_frequency_table_cpuinfo(&policy, table));
+	policy_min = policy.cpuinfo.min_freq;
+	policy_max = policy.cpuinfo.max_freq;
+
+	if (!pdata)
+		goto invalid_config;
+
+	cpufreq_ceiling_acpu_table = pdata->perf_acpu_table;
+	table_size = pdata->table_size;
+	if (!cpufreq_ceiling_acpu_table || !table_size)
+		goto invalid_config;
+	if (table_size < PERF_LOCK_INVALID)
+		goto invalid_config;
+
+	cpufreq_ceiling_acpu_table_fixup();
+
+	init_local_freq_policy(policy_min, policy_max);
+	cpufreq_ceiling_initialized = 1;
+
+	return;
+
+invalid_config:
+	pr_err("%s: invalid configuration data, %p %d %d\n", __func__,
+		cpufreq_ceiling_acpu_table, table_size, PERF_LOCK_INVALID);
 }

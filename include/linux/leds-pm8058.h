@@ -17,7 +17,6 @@
 #define _LINUX_LEDS_PM8058_H
 
 #include <linux/leds.h>
-#include <linux/pwm.h>
 #include <linux/workqueue.h>
 #include <linux/android_alarm.h>
 
@@ -88,5 +87,5 @@ struct pm8058_led_data {
 	int lut_flag;
 	int out_current;
 };
-
+void button_backlight_flash (int brightness_key);
 #endif /* _LINUX_LEDS_PM8058_H */

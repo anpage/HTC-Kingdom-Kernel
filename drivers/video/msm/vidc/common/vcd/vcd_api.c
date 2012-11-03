@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,14 +9,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
-#include "vidc_type.h"
+#include <media/msm/vidc_type.h>
 #include "vcd.h"
 
 u32 vcd_init(struct vcd_init_config *config, s32 *driver_handle)
@@ -132,7 +127,7 @@ u32 vcd_close(void *handle)
 	}
 
 	drv_ctxt = vcd_get_drv_context();
-
+	mutex_lock(&drv_ctxt->dev_mutex);
 	if (drv_ctxt->dev_state.state_table->ev_hdlr.close) {
 		rc = drv_ctxt->dev_state.state_table->ev_hdlr.
 		    close(drv_ctxt, cctxt);
@@ -142,7 +137,7 @@ u32 vcd_close(void *handle)
 
 		rc = VCD_ERR_BAD_STATE;
 	}
-
+	mutex_unlock(&drv_ctxt->dev_mutex);
 	return rc;
 
 }
@@ -216,7 +211,7 @@ u32 vcd_encode_frame(void *handle, struct vcd_frame_data *input_frame)
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    encode_frame(cctxt, input_frame);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -297,7 +292,7 @@ u32 vcd_decode_frame(void *handle, struct vcd_frame_data *input_frame)
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    decode_frame(cctxt, input_frame);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -333,7 +328,7 @@ u32 vcd_pause(void *handle)
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    pause(cctxt);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -408,7 +403,7 @@ u32 vcd_flush(void *handle, u32 mode)
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    flush(cctxt, mode);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -490,7 +485,7 @@ u32 vcd_set_property(void *handle,
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    set_property(cctxt, prop_hdr, prop_val);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -533,7 +528,7 @@ u32 vcd_get_property(void *handle,
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    get_property(cctxt, prop_hdr, prop_val);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -578,7 +573,7 @@ u32 vcd_set_buffer_requirements(void *handle,
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    set_buffer_requirements(cctxt, buffer, buffer_req);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -623,7 +618,7 @@ u32 vcd_get_buffer_requirements(void *handle,
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    get_buffer_requirements(cctxt, buffer, buffer_req);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -666,7 +661,7 @@ u32 vcd_set_buffer(void *handle,
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    set_buffer(cctxt, buffer_type, buffer, buf_size);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -712,7 +707,7 @@ u32 vcd_allocate_buffer(void *handle,
 		    allocate_buffer(cctxt, buffer, buf_size,
 				       vir_buf_addr, phy_buf_addr);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -748,7 +743,7 @@ u32 vcd_free_buffer(void *handle, enum vcd_buffer_type buffer_type, u8 *buffer)
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    free_buffer(cctxt, buffer_type, buffer);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -790,7 +785,7 @@ u32 vcd_fill_output_buffer(void *handle, struct vcd_frame_data *buffer)
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 		    fill_output_buffer(cctxt, buffer);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 			      cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -880,6 +875,18 @@ u8 vcd_get_num_of_clients(void)
 	return count;
 }
 EXPORT_SYMBOL(vcd_get_num_of_clients);
+
+u32 vcd_get_ion_status(void)
+{
+	return res_trk_get_enable_ion();
+}
+EXPORT_SYMBOL(vcd_get_ion_status);
+
+struct ion_client *vcd_get_ion_client(void)
+{
+	return res_trk_get_ion_client();
+}
+EXPORT_SYMBOL(vcd_get_ion_client);
 
 
 

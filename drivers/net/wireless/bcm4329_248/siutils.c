@@ -406,9 +406,9 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, void *regs,
 		if (sii->pub.ccrev >= 20) {
 			cc = (chipcregs_t *)si_setcore(sih, CC_CORE_ID, 0);
 #ifdef HTC_KlocWork
-    if (cc == NULL) {
-		SI_ERROR(("[HTCKW] si_doattach: cc is NULL-2\n"));
-		return NULL;
+    if(cc == NULL) {
+        SI_ERROR(("[HTCKW] si_doattach: cc is NULL-2\n"));
+        return NULL;
     }
 #endif
 			W_REG(osh, &cc->gpiopullup, 0);

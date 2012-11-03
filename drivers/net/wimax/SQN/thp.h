@@ -48,11 +48,17 @@ struct sqn_thp_header {
 };
 
 
-int init_thp(struct net_device* dev);
+int init_thp(struct net_device *dev);
 int thp_wimax_uart_switch(int on);
 void cleanup_thp(void);
 uint8_t sqn_is_rx_thp_packet(uint8_t  *dest_addr);
 uint8_t sqn_is_tx_thp_packet(uint8_t  *src_addr);
+
+extern bool drop_packet;
+extern int sqn_sdio_dump_net_pkt(int on);
+extern int mmc_wimax_get_thp_log(void);
+extern struct net_device *this_device;
+extern int mmc_wimax_uart_switch(int uart);
 
 #endif  /* _SQN_THP2_H */
 

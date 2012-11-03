@@ -6,37 +6,18 @@
 
 menu "Miscellaneous I2C Chip support"
 
-config DS1682
-	tristate "Dallas DS1682 Total Elapsed Time Recorder with Alarm"
-	depends on EXPERIMENTAL
+
+config SENSORS_ONLY_BMA250
+	tristate "BMA250 acceleration sensor support"
+	depends on I2C=y
 	help
-	  If you say yes here you get support for Dallas Semiconductor
-	  DS1682 Total Elapsed Time Recorder.
+	  BMA250 ONLY G-sensor Driver implemented by HTC.
 
-	  This driver can also be built as a module.  If so, the module
-	  will be called ds1682.
-
-config SENSORS_TSL2550
-	tristate "Taos TSL2550 ambient light sensor"
-	depends on EXPERIMENTAL
+config SENSORS_I2C_AK_BMA250
+	tristate "BMA250 acceleration sensor without AKM support(SH)"
+	depends on I2C=y
 	help
-	  If you say yes here you get support for the Taos TSL2550
-	  ambient light sensor.
-
-	  This driver can also be built as a module.  If so, the module
-	  will be called tsl2550.
-
-config SENSORS_AKM8976
-	tristate "AKM8976 Compass Driver"
-	depends on I2C
-	help
-	 AKM8976 Compass Driver implemented by HTC.
-
-config SENSORS_AKM8973
-	tristate "AKM8973 Compass Driver"
-	depends on I2C
-	help
-	 AKM8973 Compass Driver implemented by HTC.
+	 BMA250 ONLY G-sensor Driver implemented by HTC.
 
 config SENSORS_AKM8975
         tristate "AKM8973 Compass Driver"
@@ -50,26 +31,10 @@ config SENSORS_AKM8975_PANA_GYRO
         help
          AKM8975 Compass Driver implemented by HTC.
 
-config SENSORS_CAPSENSE
-	tristate "CapSense Driver"
-	depends on I2C
+config SENSORS_PANASONIC_GYRO
+	tristate "PANASONIC GYRO sensor support"
+	depends on I2C=y
 	help
-	 CapSense Driver implemented by HTC.
-
-config SENSORS_CAPSENSE_EXPRESS
-	tristate "CapSense Express Driver"
-	depends on I2C
-	help
-	 CapSense Express Driver implemented by HTC.
-
-config SMB329
-	tristate "smb329 Driver"
-	depends on I2C
-	help
-	 SMB329 Switch charger implemented by HTC.
-	 This could enable battery driver to set
-	 Charging current 100mA~500mA or 500mA~1000mA
-	 by GPIO or Register
 
 config TPS65200
         tristate "tps65200 Driver"
@@ -79,6 +44,8 @@ config TPS65200
          This could enable battery driver to set
          Charging current 100mA~500mA or 500mA~1000mA
          by GPIO or Register
+
+	  PANASONIC GYR Driver implemented by HTC.
 
 config SENSORS_BMA150
 	tristate "BMA150 G-sensor Driver"
@@ -92,34 +59,23 @@ config SENSORS_BMA250
 	help
 	  BMA250 G-sensor Driver implemented by HTC.
 
-config SENSORS_PANASONIC_GYRO
-	tristate "PANASONIC GYRO sensor support"
-	depends on I2C=y
-	help
-	  PANASONIC GYR Driver implemented by HTC.
-
 config SENSORS_NFC_PN544
 	tristate "PN544 NFC sensor support"
 	depends on I2C=y
 	help
 	  PN544 NFC Driver implemented.
 
-config SENSORS_PCA963X
-	tristate "Philips PCA963X 4-bit I2C-bus LED"
-	depends on I2C && EXPERIMENTAL
+config INPUT_CAPELLA_CM3628
+	tristate "CM3628 proximity and light sensor"
 	help
-	 If you say yes here you get support for the Philips PCA963X
-	 4-bit I2C-bus LED.
+	  Say Y here to enable the CM3628 Short Distance Proximity
+	  Sensor with Ambient Light Sensor.
 
-	 This driver can also be built as a module.  If so, the module
-	 will be called pca963X.
-
-config SENSORS_MT9T013
-	tristate "MT9T013 Camera Driver"
-	depends on I2C
-	default y
+config INPUT_CAPELLA_CM3629
+	tristate "CM3629 proximity and light sensor"
 	help
-	 MT9T013 Camera Driver implemented by HTC.
+	  Say Y here to enable the CM3629 Short Distance Proximity
+	  Sensor with Ambient Light Sensor.
 
 config VP_A1026
 	tristate "A1026 Voice Processor Driver"
@@ -129,53 +85,16 @@ config VP_A1026
 
 config VP_A1028
 	tristate "A1028 Voice Processor Driver"
-	depends on I2C
+	depends on I2C=y
 	default n
 	help
 	 A1028 Voice Processor Driver implemented by HTC.
 
-config AMP_TPA6130A
-	tristate "TI TPA6130A Headset AMP Driver"
-	depends on I2C
-	help
-	 TI TPA6130A Headset AMP Driver implemented by HTC.
-
-config AMP_TPA2018D1
-	tristate "TI TPA2018D1 Speaker AMP Driver"
-	depends on I2C
-	help
-	 TI TPA2018D1 Speaker AMP Driver implemented by HTC.
-
 config AMP_TPA2051D3
         tristate "TI TPA2051D3 Speaker AMP Driver"
-        depends on I2C
+	depends on I2C=y
         help
          TI TPA2051D3 Speaker AMP Driver implemented by HTC.
-
-config AMP_TPA2051D3_ON_GPIO
-	tristate "TI TPA2051D3 Speaker AMP Driver on gpio"
-	depends on AMP_TPA2051D3
-	default n
-	help
-	 TI TPA2051D3_ON_GPIO Speaker AMP Driver implemented by HTC.
-
-config AMP_TPA2026
-	tristate "TI TPA2026 Speaker AMP Driver"
-	depends on I2C
-	help
-	 TI TPA2026 Speaker AMP Driver implemented by HTC.
-
-config AMP_TPA2028
-	tristate "TI TPA2028 Speaker AMP Driver"
-	depends on I2C
-	help
-	 TI TPA2028 Speaker AMP Driver implemented by HTC.
-
-config AMP_AK4641
-	tristate "AKM AK4641 Codec Driver"
-	depends on I2C
-	help
-	 AKM AK4641 Codec Driver implemented by HTC.
 
 config INPUT_ISL29028
 	tristate "ISL29028 proximity and light sensor"
@@ -189,16 +108,23 @@ config INPUT_ISL29029
 	 Say Y here to enable the ISL29029 Short Distance Proximity
 	 Sensor with Ambient Light Sensor.
 
-config INPUT_CAPELLA_CM3628
-	tristate "CM3628 proximity and light sensor"
+config AMP_TPA2051D3_ON_GPIO
+	tristate "TI TPA2051D3 Speaker AMP Driver on gpio"
+	depends on AMP_TPA2051D3
+	default n
 	help
-	  Say Y here to enable the CM3628 Short Distance Proximity
-	  Sensor with Ambient Light Sensor.
+	 TI TPA2051D3_ON_GPIO Speaker AMP Driver implemented by HTC.
 
-config INPUT_CAPELLA_CM3629
-	tristate "CM3629 proximity and light sensor"
+config CODEC_AIC3254
+	tristate "Codec AIC3254 support"
+	depends on I2C=y
 	help
-	  Say Y here to enable the CM3629 Short Distance Proximity
-	  Sensor with Ambient Light Sensor.
+	  AIC3254 Driver implemented by HTC.
+
+config CODEC_AIC3008
+	tristate "Codec AIC3008 support"
+	depends on I2C=y
+	help
+	  AIC3008 Driver implemented by HTC.
 
 endmenu

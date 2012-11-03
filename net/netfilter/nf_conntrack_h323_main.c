@@ -124,6 +124,11 @@ static int get_tpkt_data(struct sk_buff *skb, unsigned int protoff,
 	int tpktlen;
 	int tpktoff;
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	/* Get TCP header */
 	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
@@ -571,10 +576,9 @@ static int h245_help(struct sk_buff *skb, unsigned int protoff,
 	int ret;
 
 	/* Until there's been traffic both ways, don't look in packets. */
-	if (ctinfo != IP_CT_ESTABLISHED &&
-	    ctinfo != IP_CT_ESTABLISHED + IP_CT_IS_REPLY) {
+	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
-	}
+
 	pr_debug("nf_ct_h245: skblen = %u\n", skb->len);
 
 	spin_lock_bh(&nf_h323_lock);
@@ -714,7 +718,6 @@ static int callforward_do_filter(const union nf_inet_addr *src,
 				 u_int8_t family)
 {
 	const struct nf_afinfo *afinfo;
-	struct flowi fl1, fl2;
 	int ret = 0;
 
 	/* rcu_read_lock()ed by nf_hook_slow() */
@@ -722,42 +725,51 @@ static int callforward_do_filter(const union nf_inet_addr *src,
 	if (!afinfo)
 		return 0;
 
-	memset(&fl1, 0, sizeof(fl1));
-	memset(&fl2, 0, sizeof(fl2));
-
 	switch (family) {
 	case AF_INET: {
+		struct flowi4 fl1, fl2;
 		struct rtable *rt1, *rt2;
 
-		fl1.fl4_dst = src->ip;
-		fl2.fl4_dst = dst->ip;
-		if (!afinfo->route((struct dst_entry **)&rt1, &fl1)) {
-			if (!afinfo->route((struct dst_entry **)&rt2, &fl2)) {
+		memset(&fl1, 0, sizeof(fl1));
+		fl1.daddr = src->ip;
+
+		memset(&fl2, 0, sizeof(fl2));
+		fl2.daddr = dst->ip;
+		if (!afinfo->route(&init_net, (struct dst_entry **)&rt1,
+				   flowi4_to_flowi(&fl1), false)) {
+			if (!afinfo->route(&init_net, (struct dst_entry **)&rt2,
+					   flowi4_to_flowi(&fl2), false)) {
 				if (rt1->rt_gateway == rt2->rt_gateway &&
-				    rt1->u.dst.dev  == rt2->u.dst.dev)
+				    rt1->dst.dev  == rt2->dst.dev)
 					ret = 1;
-				dst_release(&rt2->u.dst);
+				dst_release(&rt2->dst);
 			}
-			dst_release(&rt1->u.dst);
+			dst_release(&rt1->dst);
 		}
 		break;
 	}
 #if defined(CONFIG_NF_CONNTRACK_IPV6) || \
     defined(CONFIG_NF_CONNTRACK_IPV6_MODULE)
 	case AF_INET6: {
+		struct flowi6 fl1, fl2;
 		struct rt6_info *rt1, *rt2;
 
-		memcpy(&fl1.fl6_dst, src, sizeof(fl1.fl6_dst));
-		memcpy(&fl2.fl6_dst, dst, sizeof(fl2.fl6_dst));
-		if (!afinfo->route((struct dst_entry **)&rt1, &fl1)) {
-			if (!afinfo->route((struct dst_entry **)&rt2, &fl2)) {
+		memset(&fl1, 0, sizeof(fl1));
+		ipv6_addr_copy(&fl1.daddr, &src->in6);
+
+		memset(&fl2, 0, sizeof(fl2));
+		ipv6_addr_copy(&fl2.daddr, &dst->in6);
+		if (!afinfo->route(&init_net, (struct dst_entry **)&rt1,
+				   flowi6_to_flowi(&fl1), false)) {
+			if (!afinfo->route(&init_net, (struct dst_entry **)&rt2,
+					   flowi6_to_flowi(&fl2), false)) {
 				if (!memcmp(&rt1->rt6i_gateway, &rt2->rt6i_gateway,
 					    sizeof(rt1->rt6i_gateway)) &&
-				    rt1->u.dst.dev == rt2->u.dst.dev)
+				    rt1->dst.dev == rt2->dst.dev)
 					ret = 1;
-				dst_release(&rt2->u.dst);
+				dst_release(&rt2->dst);
 			}
-			dst_release(&rt1->u.dst);
+			dst_release(&rt1->dst);
 		}
 		break;
 	}
@@ -1117,10 +1129,9 @@ static int q931_help(struct sk_buff *skb, unsigned int protoff,
 	int ret;
 
 	/* Until there's been traffic both ways, don't look in packets. */
-	if (ctinfo != IP_CT_ESTABLISHED &&
-	    ctinfo != IP_CT_ESTABLISHED + IP_CT_IS_REPLY) {
+	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
-	}
+
 	pr_debug("nf_ct_q931: skblen = %u\n", skb->len);
 
 	spin_lock_bh(&nf_h323_lock);
@@ -1251,6 +1262,11 @@ static int expect_q931(struct sk_buff *skb, struct nf_conn *ct,
 	struct nf_conntrack_expect *exp;
 	typeof(nat_q931_hook) nat_q931;
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	/* Look for the first related address */
 	for (i = 0; i < count; i++) {
 		if (get_h225_addr(ct, *data, &taddr[i], &addr, &port) &&
@@ -1363,6 +1379,11 @@ static int process_rrq(struct sk_buff *skb, struct nf_conn *ct,
 
 	pr_debug("nf_ct_ras: RRQ\n");
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	ret = expect_q931(skb, ct, ctinfo, data,
 			  rrq->callSignalAddress.item,
 			  rrq->callSignalAddress.count);
@@ -1399,6 +1420,11 @@ static int process_rcf(struct sk_buff *skb, struct nf_conn *ct,
 	typeof(set_sig_addr_hook) set_sig_addr;
 
 	pr_debug("nf_ct_ras: RCF\n");
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
 
 	set_sig_addr = rcu_dereference(set_sig_addr_hook);
 	if (set_sig_addr && ct->status & IPS_NAT_MASK) {
@@ -1448,6 +1474,11 @@ static int process_urq(struct sk_buff *skb, struct nf_conn *ct,
 
 	pr_debug("nf_ct_ras: URQ\n");
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
+
 	set_sig_addr = rcu_dereference(set_sig_addr_hook);
 	if (set_sig_addr && ct->status & IPS_NAT_MASK) {
 		ret = set_sig_addr(skb, ct, ctinfo, data,
@@ -1480,6 +1511,11 @@ static int process_arq(struct sk_buff *skb, struct nf_conn *ct,
 	typeof(set_h225_addr_hook) set_h225_addr;
 
 	pr_debug("nf_ct_ras: ARQ\n");
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+	if (IS_ERR(info) || (!info))
+		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
+#endif
 
 	set_h225_addr = rcu_dereference(set_h225_addr_hook);
 	if ((arq->options & eAdmissionRequest_destCallSignalAddress) &&

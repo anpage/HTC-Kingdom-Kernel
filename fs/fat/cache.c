@@ -155,23 +155,17 @@ static void fat_cache_add(struct inode *inode, struct fat_cache_id *new)
 				spin_lock(&MSDOS_I(inode)->cache_lru_lock);
 				MSDOS_I(inode)->nr_caches--;
 				spin_unlock(&MSDOS_I(inode)->cache_lru_lock);
-				printk("%s: check if fat cache alloc fail!\n", __func__);
-				dump_stack();
-				BUG();
 				return;
 			}
+
 			spin_lock(&MSDOS_I(inode)->cache_lru_lock);
 			cache = fat_cache_merge(inode, new);
 			if (cache != NULL) {
 				MSDOS_I(inode)->nr_caches--;
-				if (tmp)
-					fat_cache_free(tmp);
+				fat_cache_free(tmp);
 				goto out_update_lru;
 			}
-			if (tmp)
-				cache = tmp;
-			else
-				goto out;
+			cache = tmp;
 		} else {
 			struct list_head *p = MSDOS_I(inode)->cache_lru.prev;
 			cache = list_entry(p, struct fat_cache, cache_list);

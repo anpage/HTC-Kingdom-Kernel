@@ -45,7 +45,9 @@
 #include <linux/fs.h>
 #include <linux/ioprio.h>
 
+#ifdef CONFIG_PERFLOCK
 #include <mach/perflock.h>
+#endif
 
 #include <asm/uaccess.h>
 #include <asm/unaligned.h>
@@ -67,11 +69,14 @@
  * keep_alive needs htodXX(), le/be  macro
  */
 
+dhd_pub_t *priv_dhdp = NULL;
 
 #if defined(CUSTOMER_HW2) && defined(CONFIG_WIFI_CONTROL_FUNC)
 #include <linux/wifi_tiwlan.h>
 //HTC_CSP_START
+#ifdef CONFIG_PERFLOCK
 #include <mach/perflock.h>
+#endif
 //HTC_CSP_END
 
 struct semaphore wifi_control_sem;
@@ -81,7 +86,7 @@ struct dhd_bus *g_bus;
 static struct wifi_platform_data *wifi_control_data = NULL;
 static struct resource *wifi_irqres = NULL;
 static int module_remove = 0;
-static int module_insert = 0;
+int module_insert = 0;
 
 int wifi_get_irq_number(unsigned long *irq_flags_ptr)
 {
@@ -98,10 +103,16 @@ int wifi_get_irq_number(unsigned long *irq_flags_ptr)
 
 int wifi_get_dot11n_enable(void)
 {
+#if 0
         if (wifi_control_data && wifi_control_data->dot11n_enable) {
                 return wifi_control_data->dot11n_enable;
         }
         return 0;
+#else
+        //Always support 11n for 248 driver
+        return 1;
+#endif
+
 }
 
 int wifi_get_cscan_enable(void)
@@ -368,6 +379,12 @@ module_param(dhd_pkt_filter_init, uint, 0);
 /* Pkt filter mode control */
 uint dhd_master_mode = TRUE;
 module_param(dhd_master_mode, uint, 1);
+
+/* Pkt filter for Rogers nat keep alive packet, we need change filter mode to filter out*/
+// packet filter for Rogers nat keep alive +++
+int filter_reverse = 0;
+module_param(filter_reverse, int, 0);
+// packet filter for Rogers nat keep alive ---
 
 /* Watchdog thread priority, -1 to use kernel timer */
 int dhd_watchdog_prio = 97;
@@ -1207,10 +1224,12 @@ dhd_txflowcontrol(dhd_pub_t *dhdp, int ifidx, bool state)
 	dhdp->txoff = state;
 	ASSERT(dhd && dhd->iflist[ifidx]);
 	net = dhd->iflist[ifidx]->net;
-	if (state == ON)
-		netif_stop_queue(net);
-	else
-		netif_wake_queue(net);
+	if (net) {
+		if (state == ON)
+			netif_stop_queue(net);
+		else
+			netif_wake_queue(net);
+	}
 }
 
 void
@@ -1877,6 +1896,9 @@ dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
 	WAKE_LOCK_INIT(&dhd->pub, WAKE_LOCK_IOCTL, "dhd_ioctl_entry");
 	WAKE_LOCK(&dhd->pub, WAKE_LOCK_IOCTL);
 
+#ifdef HTC_KlocWork
+	// We do not fix null pointer check of buf for KlocWork since it will result "wl down" command to reset system
+#endif
 	bcmerror = dhd_prot_ioctl(&dhd->pub, ifidx, (wl_ioctl_t *)&ioc, buf, buflen);
 
 	WAKE_UNLOCK(&dhd->pub, WAKE_LOCK_IOCTL);
@@ -2318,7 +2340,7 @@ dhd_bus_start(dhd_pub_t *dhdp)
 	setbit(dhdp->eventmask, WLC_E_NDIS_LINK);
 	setbit(dhdp->eventmask, WLC_E_MIC_ERROR);
 	setbit(dhdp->eventmask, WLC_E_PMKID_CACHE);
-	setbit(dhdp->eventmask, WLC_E_TXFAIL);
+	//setbit(dhdp->eventmask, WLC_E_TXFAIL);
 	setbit(dhdp->eventmask, WLC_E_JOIN_START);
 	setbit(dhdp->eventmask, WLC_E_SCAN_COMPLETE);
 	setbit(dhdp->eventmask, WLC_E_RELOAD);
@@ -2338,13 +2360,14 @@ dhd_bus_start(dhd_pub_t *dhdp)
 #endif /* WLC_E_DEAUTH */
 #endif
 /* enable dongle roaming event */
-	setbit(dhdp->eventmask, WLC_E_ROAM);
+	//setbit(dhdp->eventmask, WLC_E_ROAM);
 #endif /* EMBEDDED_PLATFORM */
 
 	/* Bus is ready, do any protocol initialization */
 	if ((ret = dhd_prot_init(&dhd->pub)) < 0)
 		return ret;
 
+	priv_dhdp = dhdp;
 	return 0;
 }
 
@@ -2604,21 +2627,35 @@ dhd_detach(dhd_pub_t *dhdp)
 }
 extern struct perf_lock wlan_perf_lock;
 extern void disable_dev_wlc_ioctl(void);
+#ifdef CONFIG_MACH_VERDI_LTE
+extern void enable_hlt(void);
+#endif
 static void __exit
 dhd_module_cleanup(void)
 {
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
+	if (priv_dhdp)
+		dhd_os_start_lock(priv_dhdp);
 	disable_dev_wlc_ioctl();
 	module_remove = 1;
+	if (priv_dhdp)
+		dhd_os_start_unlock(priv_dhdp);
 	module_insert = 0;
 	bcm_mdelay(1000);
 	dhd_bus_unregister();
 #if defined(CUSTOMER_HW2) && defined(CONFIG_WIFI_CONTROL_FUNC)
 	wifi_del_dev();
 #endif
-        if (is_perf_lock_active(&wlan_perf_lock))
-            perf_unlock(&wlan_perf_lock);
+#ifdef CONFIG_PERFLOCK
+        if (is_perf_lock_active(&wlan_perf_lock)){
+            perf_unlock(&wlan_perf_lock);			
+#ifdef CONFIG_MACH_VERDI_LTE
+            enable_hlt();
+            printf("unlock cpu && enable_hlt-2\n");
+#endif
+        }
+#endif
 	/* Call customer gpio to turn off power with WL_REG_ON signal */
 	dhd_customer_gpio_wlan_ctrl(WLAN_POWER_OFF);
         printf("[ATS][press_widget][turn_off]\n"); //For Auto Test System log parsing
@@ -3211,12 +3248,46 @@ int net_os_send_hang_message(struct net_device *dev)
 	return ret;
 }
 
-void dhd_bus_country_set(struct net_device *dev, char *country_code)
+//HTC_CSP_START
+void dhd_info_send_hang_message(dhd_pub_t *dhdp)
+{
+	dhd_info_t *dhd = (dhd_info_t *)dhdp->info;
+	struct net_device *dev = NULL;
+	if ((dhd == NULL) || dhd->iflist[0]->net == NULL) {
+		return;
+	}
+
+	dev = dhd->iflist[0]->net;
+	net_os_send_hang_message(dev);
+
+	return;
+}
+//HTC_CSP_END
+
+//HTC_CSP_START
+int net_os_send_rssilow_message(struct net_device *dev)
+{
+	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
+	int ret = 0;
+
+	if (module_remove) {
+		printf("%s: module removed. Do not send rssi_low event.\n", __FUNCTION__);
+		return ret;
+	}
+
+	if (dhd) {
+		ret = wl_iw_send_priv_event(dev, "RSSI_LOW_IND");
+	}
+	return ret;
+}
+//HTC_CSP_END
+
+void dhd_bus_country_set(struct net_device *dev, wl_country_t *cspec)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
 
 	if (dhd && dhd->pub.up)
-		strncpy(dhd->pub.country_code, country_code, WLC_CNTRY_BUF_SZ);
+		memcpy(&dhd->pub.dhd_cspec, cspec, sizeof(wl_country_t));
 }
 
 

@@ -20,6 +20,8 @@
 #define SET_ICL500		0X65
 #define SET_ICL100		0X66
 #define CHECK_INT2		0X67
+#define VDPM_ORIGIN_V		0XC0
+#define VDPM_476V		0XC1
 #define OVERTEMP_VREG		0XC8
 #define NORMALTEMP_VREG		0XC9
 #define CHECK_INT1		0XCA
@@ -39,6 +41,7 @@ struct tps65200_chg_int_data {
 };
 
 struct tps65200_platform_data {
+	int charger_check;
 	int gpio_chg_stat;
 	int gpio_chg_int;
 #ifdef CONFIG_SUPPORT_DQ_BATTERY
@@ -52,11 +55,16 @@ struct tps65200_chg_int_notifier {
 	void (*func)(int int_reg, int value);
 };
 
+#if defined(CONFIG_MACH_HOLIDAY)
+extern u8 batt_charging_state;
+#endif
+
 #ifdef CONFIG_TPS65200
 extern int tps_set_charger_ctrl(u32 ctl);
 extern int tps_register_notifier(struct tps65200_chg_int_notifier *notifier);
+extern int tps65200_mask_interrupt_register(int status);
 #else
-static int tps_set_charger_ctrl(u32 ctl) { return 0 ; }
+/* static int tps_set_charger_ctrl(u32 ctl) { return 0 ; } */
 extern int tps_register_notifier(struct tps65200_chg_int_notifier *notifier) { return 0; }
 #endif
 #endif

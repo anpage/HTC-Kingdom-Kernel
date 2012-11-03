@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,14 +9,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
-#include "vidc_type.h"
+#include <media/msm/vidc_type.h>
 #include "vcd.h"
 
 static const struct vcd_dev_state_table *vcd_dev_state_table[];
@@ -41,18 +36,23 @@ void vcd_do_device_state_transition(struct vcd_drv_ctxt *drv_ctxt,
 	if (!drv_ctxt || to_state >= VCD_DEVICE_STATE_MAX) {
 		VCD_MSG_ERROR("Bad parameters. drv_ctxt=%p, to_state=%d",
 				  drv_ctxt, to_state);
-		if (!drv_ctxt)
-			return;
 	}
+
+	if (!drv_ctxt)
+		return;
 
 	state_ctxt = &drv_ctxt->dev_state;
 
-	if (state_ctxt->state == to_state) {
-		VCD_MSG_HIGH("Device already in requested to_state=%d",
-				 to_state);
+	/* HTC_START (klockwork issue)*/
+	if (state_ctxt->state) {
+		if (state_ctxt->state == to_state) {
+			VCD_MSG_HIGH("Device already in requested to_state=%d",
+					to_state);
 
-		return;
+			return;
+		}
 	}
+	/* HTC_END */
 
 	VCD_MSG_MED("vcd_do_device_state_transition: D%d -> D%d, for api %d",
 			(int)state_ctxt->state, (int)to_state, ev_code);
@@ -344,7 +344,7 @@ void vcd_handle_device_err_fatal(struct vcd_dev_ctxt *dev_ctxt,
 		cctxt = cctxt->next;
 		if (tmp_clnt != trig_clnt)
 			vcd_clnt_handle_device_err_fatal(tmp_clnt,
-				VCD_EVT_IND_HWERRFATAL);
+				tmp_clnt->status.last_evt);
 	}
 	dev_ctxt->pending_cmd = VCD_CMD_DEVICE_RESET;
 	if (!dev_ctxt->cctxt_list_head)
@@ -530,8 +530,8 @@ static u32 vcd_init_cmn
 		config->map_dev_base_addr
 		|| dev_ctxt->config.un_map_dev_base_addr !=
 		config->un_map_dev_base_addr) {
-		VCD_MSG_ERROR("Device config mismatch");
-		VCD_MSG_HIGH("VCD will be using config from 1st vcd_init");
+		VCD_MSG_HIGH("Device config mismatch. "
+			"VCD will be using config from 1st vcd_init");
 	}
 
 	*driver_handle = 0;
@@ -669,8 +669,7 @@ static u32 vcd_term_cmn
 	}
 
 	--dev_ctxt->refs;
-	if (driver_handle >= 1 && driver_handle <= VCD_DRIVER_INSTANCE_MAX)
-		dev_ctxt->driver_ids[driver_handle - 1] = false;
+	dev_ctxt->driver_ids[driver_handle - 1] = false;
 
 	VCD_MSG_HIGH("Driver_id %d terminated. No of driver instances = %d",
 			 driver_handle - 1, dev_ctxt->refs);
@@ -754,6 +753,7 @@ static u32 vcd_open_cmn
 	cctxt->decoding = decoding;
 	cctxt->callback = callback;
 	cctxt->client_data = client_data;
+	cctxt->status.last_evt = VCD_EVT_RESP_OPEN;
 	INIT_LIST_HEAD(&cctxt->in_buf_pool.queue);
 	INIT_LIST_HEAD(&cctxt->out_buf_pool.queue);
 	client = dev_ctxt->cctxt_list_head;
@@ -855,7 +855,7 @@ static u32 vcd_close_in_ready
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 			close(cctxt);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 				  cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -876,7 +876,7 @@ static u32  vcd_close_in_dev_invalid(struct vcd_drv_ctxt *drv_ctxt,
 		rc = cctxt->clnt_state.state_table->
 			ev_hdlr.close(cctxt);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 					  cctxt->clnt_state.state);
 		rc = VCD_ERR_BAD_STATE;
 	}
@@ -901,7 +901,7 @@ static u32 vcd_resume_in_ready
 		rc = cctxt->clnt_state.state_table->ev_hdlr.
 			resume(cctxt);
 	} else {
-		VCD_MSG_ERROR("Unsupported API in client state %d",
+		VCD_MSG_ERROR("%s():Unsupported API in client state %d", __func__,
 				  cctxt->clnt_state.state);
 
 		rc = VCD_ERR_BAD_STATE;
@@ -922,10 +922,9 @@ static u32 vcd_set_dev_pwr_in_ready
 	switch (pwr_state) {
 	case VCD_PWR_STATE_SLEEP:
 		{
-			vcd_pause_all_sessions(dev_ctxt);
-
+			if (dev_ctxt->pwr_state == VCD_PWR_STATE_ON)
+				vcd_pause_all_sessions(dev_ctxt);
 			dev_ctxt->pwr_state = VCD_PWR_STATE_SLEEP;
-
 			break;
 		}
 
@@ -933,10 +932,7 @@ static u32 vcd_set_dev_pwr_in_ready
 		{
 			if (dev_ctxt->pwr_state == VCD_PWR_STATE_SLEEP)
 				vcd_resume_all_sessions(dev_ctxt);
-
-
 			dev_ctxt->pwr_state = VCD_PWR_STATE_ON;
-
 			break;
 		}
 

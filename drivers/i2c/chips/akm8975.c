@@ -17,14 +17,14 @@
 #include <linux/slab.h>
 #include <linux/irq.h>
 #include <linux/miscdevice.h>
-#include <asm/gpio.h>
-#include <asm/uaccess.h>
+#include <linux/gpio.h>
+#include <linux/uaccess.h>
 #include <linux/delay.h>
 #include <linux/input.h>
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
 #include <linux/akm8975.h>
-#include<linux/earlysuspend.h>
+#include <linux/earlysuspend.h>
 
 #define DEBUG 0
 #define MAX_FAILURE_COUNT 3
@@ -33,9 +33,13 @@
 #define D(x...) printk(KERN_DEBUG "[COMP][AKM8975] " x)
 #define I(x...) printk(KERN_INFO "[COMP][AKM8975] " x)
 #define E(x...) printk(KERN_ERR "[COMP][AKM8975 ERROR] " x)
-#define DIF(x...) if (debug_flag) printk(KERN_DEBUG "[COMP][AKM8975 DEBUG] " x)
-#define DIF_FATAL_ERR(x...) if (debug_flag_fatal_err) \
-		printk(KERN_DEBUG "[COMP][AKM8975 DEBUG FATAL ERR] " x)
+#define DIF(x...) {\
+		if (debug_flag) \
+			printk(KERN_DEBUG "[COMP][AKM8975 DEBUG] " x); }
+#define DIF_FATAL_ERR(x...) {\
+		if (debug_flag_fatal_err) \
+			printk(KERN_DEBUG "[COMP][AKM8975 DEBUG FATAL ERR] "\
+			 x); }
 
 #define DEVICE_ACCESSORY_ATTR(_name, _mode, _show, _store) \
 struct device_attribute dev_attr_##_name = __ATTR(_name, _mode, _show, _store)
@@ -435,8 +439,8 @@ static int akm_aot_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int
-akm_aot_ioctl(struct inode *inode, struct file *file,
+static long
+akm_aot_ioctl(/*struct inode *inode,*/ struct file *file,
 	      unsigned int cmd, unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
@@ -534,8 +538,8 @@ static int akmd_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int
-akmd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
+static long
+akmd_ioctl(/*struct inode *inode,*/ struct file *file, unsigned int cmd,
 	   unsigned long arg)
 {
 
@@ -749,14 +753,27 @@ static const struct file_operations akmd_fops = {
 	.owner = THIS_MODULE,
 	.open = akmd_open,
 	.release = akmd_release,
-	.ioctl = akmd_ioctl,
+	/*(.ioctl = akmd_ioctl,*/
+#if HAVE_COMPAT_IOCTL
+	.compat_ioctl = akmd_ioctl,
+#endif
+#if HAVE_UNLOCKED_IOCTL
+	.unlocked_ioctl = akmd_ioctl,
+#endif
 };
 
 static const struct file_operations akm_aot_fops = {
 	.owner = THIS_MODULE,
 	.open = akm_aot_open,
 	.release = akm_aot_release,
-	.ioctl = akm_aot_ioctl,
+	/*.ioctl = akm_aot_ioctl,*/
+#if HAVE_COMPAT_IOCTL
+	.compat_ioctl = akm_aot_ioctl,
+#endif
+#if HAVE_UNLOCKED_IOCTL
+	.unlocked_ioctl = akm_aot_ioctl,
+#endif
+
 };
 
 
@@ -778,7 +795,7 @@ static ssize_t akm_show(struct device *dev,
 {
 	char *s = buf;
 	s += sprintf(s, "%d\n", atomic_read(&PhoneOn_flag));
-	return (s - buf);
+	return s - buf;
 }
 
 static ssize_t akm_store(struct device *dev,
@@ -1052,12 +1069,21 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	irq_type = (pdata->irq_trigger) ? IRQF_TRIGGER_LOW : IRQF_TRIGGER_HIGH;
 
-	err = request_irq(client->irq, akm8975_interrupt, irq_type,
+
+	if (pdata->intr_pin) {
+		D("client->irq = %d, gpio_to_irq(pdata->intr_pin) = %d\n",
+			client->irq, gpio_to_irq(pdata->intr_pin));
+		client->irq = gpio_to_irq(pdata->intr_pin);/*for kernel 3.0*/
+	} else
+		D("pdata->intr_pin == 0\n");
+
+	err = request_any_context_irq(client->irq, akm8975_interrupt, irq_type,
 			  "akm8975", akm);
 	if (err < 0) {
 		E("%s: request irq failed\n", __func__);
 		goto exit_irq_request_failed;
 	}
+	D("akm8975 probe OK!\n");
 
 	return 0;
 

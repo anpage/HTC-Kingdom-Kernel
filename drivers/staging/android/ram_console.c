@@ -21,6 +21,7 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/io.h>
+#include <linux/platform_data/ram_console.h>
 
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ERROR_CORRECTION
 #include <linux/rslib.h>
@@ -171,14 +172,20 @@ void ram_console_enable_console(int enabled)
 }
 
 static void __init
-ram_console_save_old(struct ram_console_buffer *buffer, char *dest)
+ram_console_save_old(struct ram_console_buffer *buffer, const char *bootinfo,
+	char *dest)
 {
 	size_t old_log_size = buffer->size;
+	size_t bootinfo_size = 0;
+	size_t total_size = old_log_size;
+	char *ptr;
+	const char *bootinfo_label = "Boot info:\n";
+
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ERROR_CORRECTION
 	uint8_t *block;
 	uint8_t *par;
 	char strbuf[80];
-	int strbuf_len;
+	int strbuf_len = 0;
 
 	block = buffer->data;
 	par = ram_console_par_buffer;
@@ -213,11 +220,15 @@ ram_console_save_old(struct ram_console_buffer *buffer, char *dest)
 				      "\nNo errors detected\n");
 	if (strbuf_len >= sizeof(strbuf))
 		strbuf_len = sizeof(strbuf) - 1;
-	old_log_size += strbuf_len;
+	total_size += strbuf_len;
 #endif
 
+	if (bootinfo)
+		bootinfo_size = strlen(bootinfo) + strlen(bootinfo_label);
+	total_size += bootinfo_size;
+
 	if (dest == NULL) {
-		dest = kmalloc(old_log_size, GFP_KERNEL);
+		dest = kmalloc(total_size, GFP_KERNEL);
 		if (dest == NULL) {
 			printk(KERN_ERR
 			       "ram_console: failed to allocate buffer\n");
@@ -226,19 +237,27 @@ ram_console_save_old(struct ram_console_buffer *buffer, char *dest)
 	}
 
 	ram_console_old_log = dest;
-	ram_console_old_log_size = old_log_size;
+	ram_console_old_log_size = total_size;
 	memcpy(ram_console_old_log,
 	       &buffer->data[buffer->start], buffer->size - buffer->start);
 	memcpy(ram_console_old_log + buffer->size - buffer->start,
 	       &buffer->data[0], buffer->start);
+	ptr = ram_console_old_log + old_log_size;
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ERROR_CORRECTION
-	memcpy(ram_console_old_log + old_log_size - strbuf_len,
-	       strbuf, strbuf_len);
+	memcpy(ptr, strbuf, strbuf_len);
+	ptr += strbuf_len;
 #endif
+	if (bootinfo) {
+		memcpy(ptr, bootinfo_label, strlen(bootinfo_label));
+		ptr += strlen(bootinfo_label);
+		memcpy(ptr, bootinfo, bootinfo_size);
+		ptr += bootinfo_size;
+	}
 }
 
 static int __init ram_console_init(struct ram_console_buffer *buffer,
-				   size_t buffer_size, char *old_buf)
+				   size_t buffer_size, const char *bootinfo,
+				   char *old_buf)
 {
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ERROR_CORRECTION
 	int numerr;
@@ -305,7 +324,7 @@ static int __init ram_console_init(struct ram_console_buffer *buffer,
 			printk(KERN_INFO "ram_console: found existing buffer, "
 			       "size %d, start %d\n",
 			       buffer->size, buffer->start);
-			ram_console_save_old(buffer, old_buf);
+			ram_console_save_old(buffer, bootinfo, old_buf);
 		}
 	} else {
 		printk(KERN_INFO "ram_console: no valid data in buffer "
@@ -329,6 +348,7 @@ static int __init ram_console_early_init(void)
 	return ram_console_init((struct ram_console_buffer *)
 		CONFIG_ANDROID_RAM_CONSOLE_EARLY_ADDR,
 		CONFIG_ANDROID_RAM_CONSOLE_EARLY_SIZE,
+		NULL,
 		ram_console_old_log_init_buffer);
 }
 #else
@@ -338,6 +358,8 @@ static int ram_console_driver_probe(struct platform_device *pdev)
 	size_t start;
 	size_t buffer_size;
 	void *buffer;
+	const char *bootinfo = NULL;
+	struct ram_console_platform_data *pdata = pdev->dev.platform_data;
 
 	if (res == NULL || pdev->num_resources != 1 ||
 	    !(res->flags & IORESOURCE_MEM)) {
@@ -355,7 +377,10 @@ static int ram_console_driver_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	return ram_console_init(buffer, buffer_size, NULL/* allocate */);
+	if (pdata)
+		bootinfo = pdata->bootinfo;
+
+	return ram_console_init(buffer, buffer_size, bootinfo, NULL/* allocate */);
 }
 
 static struct platform_driver ram_console_driver = {
@@ -378,13 +403,13 @@ static int __init ram_console_module_init(void)
  * check rpc link
  * stop checking if 1. link establishs. 2. link did not establish after 35 seconds.
  */
-static void rpc_check_func(struct work_struct* work)
+static void rpc_check_func(struct work_struct *work)
 {
 	struct rpc_link *rpc;
 	static int count = 0;
 
-	if (count++ >= 35 ) {
-		printk("MDM9K_ERROR_CORRECTION fail due to RPC connection is not ready\n");
+	if (count++ >= 35) {
+		printk(KERN_ERR "MDM9K_ERROR_CORRECTION fail due to RPC connection is not ready\n");
 		return;
 	}
 
@@ -394,8 +419,7 @@ static void rpc_check_func(struct work_struct* work)
 	if (IS_ERR(rpc->rpc_client)) {
 		schedule_delayed_work(&rpc->dwork, msecs_to_jiffies(1000));
 		return;
-	}
-	else {
+	} else {
 		RPC_READY = 1;
 		wake_up(&rpc->rpcwq);
 	}
@@ -405,10 +429,10 @@ static void rpc_check_func(struct work_struct* work)
  * Get error message form mdm9k.
  * MDM9K_CHECK_ERROR, and input number(0,1) are confirmed by radio team.
  */
-void query_error_message(struct msm_rpc_client *rpc_client, char* buf, int check_number)
+void query_error_message(struct msm_rpc_client *rpc_client, char *buf, int check_number)
 {
 	struct oem_rapi_client_streaming_func_arg arg;
-        struct oem_rapi_client_streaming_func_ret ret;
+	struct oem_rapi_client_streaming_func_ret ret;
 	int err, ret_len;
 	char input;
 
@@ -426,22 +450,23 @@ void query_error_message(struct msm_rpc_client *rpc_client, char* buf, int check
 	ret.out_len = &ret_len;
 	ret.output = NULL;
 	err = oem_rapi_client_streaming_function(rpc_client, &arg, &ret);
-	if (!*ret.out_len) {
-		if (check_number == 0)
-			strcat(buf, "[SQA][ARM] no error occur\n");
-		else if (check_number == 1)
-			strcat(buf, "[SQA][QDSP6] no error occur\n");
-	}
-	else if (err) {
+	if (err) {
 		printk(KERN_ERR "ram_console: Receive data from modem failed: err = %d\n", err);
-	}
-	else {
-		ret.output[*ret.out_len] = '\n';
-		ret.output[*ret.out_len+1] = '\0';
+	} else if (!*ret.out_len) {
 		if (check_number == 0)
-			strcpy(buf,ret.output);
+			strncat(buf, "[SQA][ARM] no error occur\n", MDM9K_BUFF_SIZE);
 		else if (check_number == 1)
-			strcat(buf,ret.output);
+			strncat(buf, "[SQA][QDSP6] no error occur\n", MDM9K_BUFF_SIZE);
+		printk(KERN_INFO "ram_console: query mdm9k message %d - out_len = 0\n", check_number);
+		kfree(ret.out_len);
+	} else {
+		printk(KERN_INFO "ram_console: query mdm9k message %d - out_len = %d\n", check_number, *ret.out_len);
+		if (check_number == 0)
+			strncpy(buf, ret.output, *ret.out_len);
+		else if (check_number == 1)
+			strncat(buf, ret.output, *ret.out_len);
+		kfree(ret.out_len);
+		kfree(ret.output);
 	}
 }
 /*
@@ -449,7 +474,7 @@ void query_error_message(struct msm_rpc_client *rpc_client, char* buf, int check
  * due to RPC link need a long time to create (35~50 seconds).
  * rpc_check_func() is used to check the link every 1 second(stop after 35 retries).
  */
-int get_mdm9k_error_message(char * buf)
+int get_mdm9k_error_message(char *buf)
 {
 	struct rpc_link rpc;
 
@@ -457,27 +482,27 @@ int get_mdm9k_error_message(char * buf)
 
 	if (RPC_READY) {
 		rpc.rpc_client = oem_rapi_client_init();
-	}
-	else {
+	} else {
 		INIT_DELAYED_WORK(&rpc.dwork, rpc_check_func);
 		schedule_delayed_work(&rpc.dwork, msecs_to_jiffies(25000));
 		init_waitqueue_head(&rpc.rpcwq);
 		wait_event_timeout(rpc.rpcwq, RPC_READY == 1, msecs_to_jiffies(70000));
-		flush_delayed_work(&rpc.dwork); // avoid RPC_READY is set by others after schedule rpc.dwork
+		flush_delayed_work(&rpc.dwork); /* avoid RPC_READY is set by others after schedule rpc.dwork */
 	}
 
-	if(IS_ERR(rpc.rpc_client))
-	{
+	if (IS_ERR(rpc.rpc_client)) {
 		strcpy(buf, "[mdm9k] MDM9K_ERROR_CORRECTION fail due to RPC link is not ready\n");
 		return strlen(buf);
 	}
 
+	printk(KERN_INFO "ram_console: RPC client ready...\n");
 	query_error_message(rpc.rpc_client, buf, 0);
 	query_error_message(rpc.rpc_client, buf, 1);
 	oem_rapi_client_close();
 	return strlen(buf);
 }
 #endif
+
 static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 				    size_t len, loff_t *offset)
 {
@@ -485,21 +510,22 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	ssize_t count;
 
 #ifdef CONFIG_MDM9K_ERROR_CORRECTION
-	if (pos == ram_console_old_log_size)
-	{
+	if (pos == ram_console_old_log_size) {
 		char mdm9k_buf[256];
 		printk(KERN_INFO "ram_console: MDM9K error log collection start...\n");
 		memset(mdm9k_buf, 0, 256);
 		count = get_mdm9k_error_message(mdm9k_buf);
-		if (count == 0 )
+		if (count == 0)
 			return 0;
 		if (copy_to_user(buf, mdm9k_buf, count))
-	                return -EFAULT;
+			return -EFAULT;
 
 		*offset += count;
-	        return count;
+		printk(KERN_INFO "ram_console: MDM9K error log collection stop...\n");
+		return count;
 	}
 #endif
+
 	if (pos >= ram_console_old_log_size)
 		return 0;
 

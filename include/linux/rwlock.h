@@ -5,16 +5,6 @@
 # error "please don't include this file directly"
 #endif
 
-#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#include <linux/smp.h>
-#include "../arch/arm/include/asm/sizes.h"
-#include "../arch/arm/mach-msm/include/mach/msm_iomap.h"
-#include "../arch/arm/mach-msm/include/mach/msm_iomap-8x60.h"
-#endif
-
-#ifdef CONFIG_SPINLOCK_FOOTPRINT
-extern int spin_lock_footprint;
-#endif
 /*
  * rwlock related methods
  *
@@ -23,16 +13,6 @@ extern int spin_lock_footprint;
  * portions Copyright 2005, Red Hat, Inc., Ingo Molnar
  * Released under the General Public License (GPL).
  */
-//#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#if 0
-#define RECORD_PC 							\
-do {									\
-if (spin_lock_footprint)                                		\
-	__asm__ __volatile__ ("mov  %0, pc": "=r" (*(unsigned int *)	\
-	(MSM_SPIN_LOCK_IRQSAVE_PC_BASE + smp_processor_id()*4)));	\
-}									\
-while(0)
-#endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
   extern void __rwlock_init(rwlock_t *lock, const char *name,
@@ -86,21 +66,6 @@ do {								\
 
 #if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 
-//#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#if 0
-#define read_lock_irqsave(lock, flags)			\
-	do {						\
-		typecheck(unsigned long, flags);	\
-		flags = _raw_read_lock_irqsave(lock);	\
-		RECORD_PC;				\
-	} while (0)
-#define write_lock_irqsave(lock, flags)			\
-	do {						\
-		typecheck(unsigned long, flags);	\
-		flags = _raw_write_lock_irqsave(lock);	\
-		RECORD_PC;				\
-	} while (0)
-#else
 #define read_lock_irqsave(lock, flags)			\
 	do {						\
 		typecheck(unsigned long, flags);	\
@@ -111,9 +76,8 @@ do {								\
 		typecheck(unsigned long, flags);	\
 		flags = _raw_write_lock_irqsave(lock);	\
 	} while (0)
-#endif
-#else
 
+#else
 
 #define read_lock_irqsave(lock, flags)			\
 	do {						\
@@ -128,56 +92,27 @@ do {								\
 
 #endif
 
-
-//#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#if 0
-#define read_lock_irq(lock)		_raw_read_lock_irq(lock); RECORD_PC;
-#define write_lock_irq(lock)		_raw_write_lock_irq(lock); RECORD_PC;
-#define read_unlock_irq(lock)		_raw_read_unlock_irq(lock); RECORD_PC;
-#define write_unlock_irq(lock)		_raw_write_unlock_irq(lock); RECORD_PC;
-#else
 #define read_lock_irq(lock)		_raw_read_lock_irq(lock)
-#define write_lock_irq(lock)		_raw_write_lock_irq(lock)
-#define read_unlock_irq(lock)		_raw_read_unlock_irq(lock)
-#define write_unlock_irq(lock)		_raw_write_unlock_irq(lock)
-#endif
 #define read_lock_bh(lock)		_raw_read_lock_bh(lock)
+#define write_lock_irq(lock)		_raw_write_lock_irq(lock)
 #define write_lock_bh(lock)		_raw_write_lock_bh(lock)
 #define read_unlock(lock)		_raw_read_unlock(lock)
 #define write_unlock(lock)		_raw_write_unlock(lock)
+#define read_unlock_irq(lock)		_raw_read_unlock_irq(lock)
+#define write_unlock_irq(lock)		_raw_write_unlock_irq(lock)
 
-//#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#if 0
-#define read_unlock_irqrestore(lock, flags)			\
-	do {							\
-		typecheck(unsigned long, flags);		\
-		_raw_read_unlock_irqrestore(lock, flags);	\
-		RECORD_PC;					\
-	} while (0)
-#else
 #define read_unlock_irqrestore(lock, flags)			\
 	do {							\
 		typecheck(unsigned long, flags);		\
 		_raw_read_unlock_irqrestore(lock, flags);	\
 	} while (0)
-#endif
 #define read_unlock_bh(lock)		_raw_read_unlock_bh(lock)
 
-//#ifdef CONFIG_SPINLOCK_FOOTPRINT
-#if 0
-#define write_unlock_irqrestore(lock, flags)		\
-	do {						\
-		typecheck(unsigned long, flags);	\
-		_raw_write_unlock_irqrestore(lock, flags);	\
-		RECORD_PC;				\
-	} while (0)
-#else
 #define write_unlock_irqrestore(lock, flags)		\
 	do {						\
 		typecheck(unsigned long, flags);	\
 		_raw_write_unlock_irqrestore(lock, flags);	\
 	} while (0)
-#endif
 #define write_unlock_bh(lock)		_raw_write_unlock_bh(lock)
 
 #define write_trylock_irqsave(lock, flags) \

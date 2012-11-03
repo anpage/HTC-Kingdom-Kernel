@@ -64,10 +64,16 @@ config TEST_POWER
 
 config BATTERY_DS2760
 	tristate "DS2760 battery driver (HP iPAQ & others)"
-	select W1
-	select W1_SLAVE_DS2760
+	depends on W1 && W1_SLAVE_DS2760
 	help
 	  Say Y here to enable support for batteries with ds2760 chip.
+
+config BATTERY_DS2780
+	tristate "DS2780 battery driver"
+	select W1
+	select W1_SLAVE_DS2780
+	help
+	  Say Y here to enable support for batteries with ds2780 chip.
 
 config BATTERY_DS2782
 	tristate "DS2782/DS2786 standalone gas-gauge"
@@ -75,12 +81,6 @@ config BATTERY_DS2782
 	help
 	  Say Y here to enable support for the DS2782/DS2786 standalone battery
 	  gas-gauge.
-
-config BATTERY_DS2784
-	tristate "DS2784 battery driver "
-	select W1
-	help
-	  Say Y here to enable support for batteries with ds2784 chip.
 
 config BATTERY_DS2746
         tristate "DS2746 battery driver "
@@ -120,17 +120,32 @@ config BATTERY_WM97XX
 	help
 	  Say Y to enable support for battery measured by WM97xx aux port.
 
+config BATTERY_BQ20Z75
+        tristate "TI BQ20z75 gas gauge"
+        depends on I2C
+        help
+         Say Y to include support for TI BQ20z75 SBS-compliant
+         gas gauge and protection IC.
+
 config BATTERY_BQ27x00
 	tristate "BQ27x00 battery driver"
+	help
+	  Say Y here to enable support for batteries with BQ27x00 (I2C/HDQ) chips.
+
+config BATTERY_BQ27X00_I2C
+	bool "BQ27200/BQ27500 support"
+	depends on BATTERY_BQ27x00
 	depends on I2C
+	default y
 	help
 	  Say Y here to enable support for batteries with BQ27x00 (I2C) chips.
 
-config BATTERY_BQ27510
-	tristate "BQ27510 battery driver"
-	depends on I2C
+config BATTERY_BQ27X00_PLATFORM
+	bool "BQ27000 support"
+	depends on BATTERY_BQ27x00
+	default y
 	help
-	  Say Y here to enable support for batteries with bq27510 chip.
+	  Say Y here to enable support for batteries with BQ27000 (HDQ) chips.
 
 config BATTERY_DA9030
 	tristate "DA9030 battery driver"
@@ -147,11 +162,27 @@ config BATTERY_MAX17040
 	  in handheld and portable equipment. The MAX17040 is configured
 	  to operate with a single lithium cell
 
+config BATTERY_MAX17042
+	tristate "Maxim MAX17042/8997/8966 Fuel Gauge"
+	depends on I2C
+	help
+	  MAX17042 is fuel-gauge systems for lithium-ion (Li+) batteries
+	  in handheld and portable equipment. The MAX17042 is configured
+	  to operate with a single lithium cell. MAX8997 and MAX8966 are
+	  multi-function devices that include fuel gauages that are compatible
+	  with MAX17042.
+
 config BATTERY_Z2
 	tristate "Z2 battery driver"
 	depends on I2C && MACH_ZIPIT2
 	help
 	  Say Y to include support for the battery on the Zipit Z2.
+
+config BATTERY_S3C_ADC
+	tristate "Battery driver for Samsung ADC based monitoring"
+	depends on S3C_ADC
+	help
+	  Say Y here to enable support for iPAQ h1930/h1940/rx1950 battery
 
 config CHARGER_PCF50633
 	tristate "NXP PCF50633 MBC"
@@ -159,10 +190,163 @@ config CHARGER_PCF50633
 	help
 	 Say Y to include support for NXP PCF50633 Main Battery Charger.
 
-config CHARGER_PM8058
-	bool "Qualcomm PM8058 pmic charger driver"
-	depends on PM8058
+config BATTERY_JZ4740
+	tristate "Ingenic JZ4740 battery"
+	depends on MACH_JZ4740
+	depends on MFD_JZ4740_ADC
 	help
-	  Say Y to include support for the pm8058 charge controller
+	  Say Y to enable support for the battery on Ingenic JZ4740 based
+	  boards.
+
+	  This driver can be build as a module. If so, the module will be
+	  called jz4740-battery.
+
+config BATTERY_INTEL_MID
+	tristate "Battery driver for Intel MID platforms"
+	depends on INTEL_SCU_IPC && SPI
+	help
+	  Say Y here to enable the battery driver on Intel MID
+	  platforms.
+
+config CHARGER_ISP1704
+	tristate "ISP1704 USB Charger Detection"
+	depends on USB_OTG_UTILS
+	help
+	  Say Y to enable support for USB Charger Detection with
+	  ISP1707/ISP1704 USB transceivers.
+
+config CHARGER_MAX8903
+	tristate "MAX8903 Battery DC-DC Charger for USB and Adapter Power"
+	depends on GENERIC_HARDIRQS
+	help
+	  Say Y to enable support for the MAX8903 DC-DC charger and sysfs.
+	  The driver supports controlling charger-enable and current-limit
+	  pins based on the status of charger connections with interrupt
+	  handlers.
+
+config CHARGER_TWL4030
+	tristate "OMAP TWL4030 BCI charger driver"
+	depends on TWL4030_CORE
+	help
+	  Say Y here to enable support for TWL4030 Battery Charge Interface.
+
+config CHARGER_GPIO
+	tristate "GPIO charger"
+	depends on GPIOLIB
+	help
+	  Say Y to include support for chargers which report their online status
+	  through a GPIO pin.
+
+	  This driver can be build as a module. If so, the module will be
+	  called gpio-charger.
+
+config BATTERY_MSM
+	tristate "MSM battery"
+	depends on ARCH_MSM
+	default m
+	help
+	  Say Y to enable support for the battery in Qualcomm MSM.
+
+config BATTERY_MSM8X60
+	tristate "MSM8X60 battery"
+	select PMIC8XXX_BATTALARM
+	help
+	  Some MSM boards have dual charging paths to charge the battery.
+	  Say Y to enable support for the battery charging in
+	  such devices.
+
+config PM8058_CHARGER
+	tristate "pmic8058 charger"
+	depends on BATTERY_MSM8X60
+	depends on PMIC8058
+	help
+	  Say Y to enable support for battery charging from the pmic8058.
+	  pmic8058 provides a linear charging circuit connected to the usb
+	  cable on Qualcomm's msm8x60 surf board.
+
+config ISL9519_CHARGER
+	tristate "isl9519 charger"
+	depends on BATTERY_MSM8X60
+	default n
+	help
+	  The isl9519q charger chip from intersil is connected to an external
+	  charger cable and is preferred way of charging the battery because
+	  of its high current rating.
+	  Choose Y if you are compiling for Qualcomm's msm8x60 surf/ffa board.
+
+config SMB137B_CHARGER
+	tristate "smb137b charger"
+	default n
+	depends on I2C
+	help
+	  The smb137b charger chip from summit is a switching mode based
+	  charging solution.
+	  Choose Y if you are compiling for Qualcomm's msm8x60 fluid board.
+	  To compile this driver as a module, choose M here: the module will
+	  be called smb137b.
+
+config BATTERY_MSM_FAKE
+	tristate "Fake MSM battery"
+	depends on ARCH_MSM && BATTERY_MSM
+	default n
+	help
+	  Say Y to bypass actual battery queries.
+
+config PM8058_FIX_USB
+	tristate "pmic8058 software workaround for usb removal"
+	depends on PMIC8058
+	depends on !PM8058_CHARGER
+	help
+	  Say Y to enable the software workaround to USB Vbus line
+	  staying high even when USB cable is removed. This option
+	  is in lieu of a complete pm8058 charging driver.
+
+config BATTERY_QCIBAT
+	tristate "Quanta Computer Inc. Battery"
+	depends on SENSORS_WPCE775X
+	default n
+	help
+	  Say Y here if you want to use the Quanta battery driver for ST15
+	  platform.
+
+config BATTERY_BQ27520
+	tristate "BQ27520 battery driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable support for batteries with BQ27520 (I2C) chips.
+
+config BATTERY_BQ27541
+	tristate "BQ27541 battery driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable support for batteries with BQ27541 (I2C) chips.
+
+config BQ27520_TEST_ENABLE
+	bool "Enable BQ27520 Fuel Gauge Chip Test"
+	depends on BATTERY_BQ27520
+	default n
+	help
+	  Say Y here to enable Test sysfs Interface for BQ27520 Drivers.
+
+config PM8921_CHARGER
+	tristate "PM8921 Charger driver"
+	depends on MFD_PM8921_CORE
+	help
+	  Say Y here to enable support for pm8921 chip charger subdevice
+
+config PM8XXX_CCADC
+	tristate "PM8XXX battery current adc driver"
+	depends on MFD_PM8921_CORE
+	help
+	  Say Y here to enable support for pm8921 chip bms subdevice
+
+config PM8921_BMS
+	select PM8XXX_CCADC
+	tristate "PM8921 Battery Monitoring System driver"
+	depends on MFD_PM8921_CORE
+	help
+	  Say Y here to enable support for pm8921 chip bms subdevice
 
 endif # POWER_SUPPLY

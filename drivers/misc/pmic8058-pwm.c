@@ -1,72 +1,13 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Alternatively, and instead of the terms immediately above, this
- * software may be relicensed by the recipient at their option under the
- * terms of the GNU General Public License version 2 ("GPL") and only
- * version 2.  If the recipient chooses to relicense the software under
- * the GPL, then the recipient shall replace all of the text immediately
- * above and including this paragraph with the text immediately below
- * and between the words START OF ALTERNATE GPL TERMS and END OF
- * ALTERNATE GPL TERMS and such notices and license terms shall apply
- * INSTEAD OF the notices and licensing terms given above.
- *
- * START OF ALTERNATE GPL TERMS
- *
- * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
- *
- * This software was originally licensed under the Code Aurora Forum
- * Inc. Dual BSD/GPL License version 1.1 and relicensed as permitted
- * under the terms thereof by a recipient under the General Public
- * License Version 2.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * END OF ALTERNATE GPL TERMS
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 /*
@@ -74,18 +15,20 @@
  *
  */
 
+#define pr_fmt(fmt)	"%s: " fmt, __func__
+
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/slab.h>
 #include <linux/err.h>
 #include <linux/pwm.h>
-#include <linux/mfd/pmic8058.h>
+#include <linux/mfd/pm8xxx/core.h>
 #include <linux/pmic8058-pwm.h>
-#include <linux/slab.h>
 
 #define	PM8058_LPG_BANKS		8
 #define	PM8058_PWM_CHANNELS		PM8058_LPG_BANKS	/* MAX=8 */
 
-
+#define	PM8058_LPG_CTL_REGS		7
 
 /* PMIC8058 LPG/PWM */
 #define	SSBI_REG_ADDR_LPG_CTL_BASE	0x13C
@@ -230,32 +173,36 @@ static unsigned int pt_t[NUM_PRE_DIVIDE][NUM_CLOCKS] = {
 #define	MIN_MPT	((PRE_DIVIDE_MIN * CLK_PERIOD_MIN) << PM8058_PWM_M_MIN)
 #define	MAX_MPT	((PRE_DIVIDE_MAX * CLK_PERIOD_MAX) << PM8058_PWM_M_MAX)
 
+#define	CHAN_LUT_SIZE		(PM_PWM_LUT_SIZE / PM8058_PWM_CHANNELS)
+
 /* Private data */
 struct pm8058_pwm_chip;
+
+struct pwm_device {
+	struct device		*dev;
+	int			pwm_id;		/* = bank/channel id */
+	int			in_use;
+	const char		*label;
+	struct pm8058_pwm_period	period;
+	int			pwm_value;
+	int			pwm_period;
+	int			use_lut;	/* Use LUT to output PWM */
+	u8			pwm_ctl[PM8058_LPG_CTL_REGS];
+	int			irq;
+	struct pm8058_pwm_chip  *chip;
+};
 
 struct pm8058_pwm_chip {
 	struct pwm_device	pwm_dev[PM8058_PWM_CHANNELS];
 	u8			bank_mask;
 	struct mutex		pwm_mutex;
-#ifdef CONFIG_MSM_SSBI
-	struct pm8058 *pm_chip;
-	struct device		*dev;
-#else
-	struct pm8058_chip	*pm_chip;
-#endif
+	struct pm8058_pwm_pdata	*pdata;
 };
 
 static struct pm8058_pwm_chip	*pwm_chip;
-#if 0
-struct pw8058_pwm_config {
-	int	pwm_size;	/* round up to 6 or 9 for 6/9-bit PWM SIZE */
-	int	clk;
-	int	pre_div;
-	int	pre_div_exp;
-	int	pwm_value;
-	int	bypass_lut;
 
-	/* LUT parameters when bypass_lut is 0 */
+struct pm8058_pwm_lut {
+	/* LUT parameters */
 	int	lut_duty_ms;
 	int	lut_lo_index;
 	int	lut_hi_index;
@@ -263,7 +210,7 @@ struct pw8058_pwm_config {
 	int	lut_pause_lo;
 	int	flags;
 };
-#endif
+
 static u16 duty_msec[PM8058_PWM_1KHZ_COUNT_MAX + 1] = {
 	0, 1, 2, 3, 4, 6, 8, 16, 18, 24, 32, 36, 64, 128, 256, 512
 };
@@ -278,6 +225,12 @@ static u16 pause_count[PM8058_PWM_PAUSE_COUNT_MAX + 1] = {
 };
 
 /* Internal functions */
+static void pm8058_pwm_save(u8 *u8p, u8 mask, u8 val)
+{
+	*u8p &= ~mask;
+	*u8p |= val & mask;
+}
+
 static int pm8058_pwm_bank_enable(struct pwm_device *pwm, int enable)
 {
 	int	rc;
@@ -290,14 +243,11 @@ static int pm8058_pwm_bank_enable(struct pwm_device *pwm, int enable)
 		reg = chip->bank_mask | (1 << pwm->pwm_id);
 	else
 		reg = chip->bank_mask & ~(1 << pwm->pwm_id);
-#ifdef CONFIG_MSM_SSBI
-	rc = pm8058_writeb(pwm_chip->dev->parent, SSBI_REG_ADDR_LPG_BANK_EN, reg);
-#else
-	rc = pm8058_write(chip->pm_chip, SSBI_REG_ADDR_LPG_BANK_EN, &reg, 1);
-#endif
+
+	rc = pm8xxx_writeb(pwm->dev->parent,
+				SSBI_REG_ADDR_LPG_BANK_EN, reg);
 	if (rc) {
-		pr_err("%s: pm8058_write(): rc=%d (Enable LPG Bank)\n",
-		       __func__, rc);
+		pr_err("pm8xxx_write(): rc=%d (Enable LPG Bank)\n", rc);
 		goto bail_out;
 	}
 	chip->bank_mask = reg;
@@ -310,17 +260,12 @@ static int pm8058_pwm_bank_sel(struct pwm_device *pwm)
 {
 	int	rc;
 	u8	reg;
-	/*pr_notice("%s: 1\n", __func__);*/
+
 	reg = pwm->pwm_id;
-#ifdef CONFIG_MSM_SSBI
-	rc = pm8058_writeb(pwm_chip->dev->parent, SSBI_REG_ADDR_LPG_BANK_SEL, reg);
-#else
-	rc = pm8058_write(pwm->chip->pm_chip, SSBI_REG_ADDR_LPG_BANK_SEL,
-			     &reg, 1);
-#endif
+	rc = pm8xxx_writeb(pwm->dev->parent,
+			SSBI_REG_ADDR_LPG_BANK_SEL, reg);
 	if (rc)
-		pr_err("%s: pm8058_write(): rc=%d (Select PWM Bank)\n",
-		       __func__, rc);
+		pr_err("pm8xxx_write(): rc=%d (Select PWM Bank)\n", rc);
 	return rc;
 }
 
@@ -339,23 +284,18 @@ static int pm8058_pwm_start(struct pwm_device *pwm, int start, int ramp_start)
 		reg = pwm->pwm_ctl[0] & ~PM8058_PWM_PWM_START;
 		reg &= ~PM8058_PWM_RAMP_GEN_START;
 	}
-#ifdef CONFIG_MSM_SSBI
-	rc = pm8058_writeb(pwm_chip->dev->parent,  SSBI_REG_ADDR_LPG_CTL(0), reg);
-#else
-	rc = pm8058_write(pwm->chip->pm_chip, SSBI_REG_ADDR_LPG_CTL(0),
-			  &reg, 1);
-#endif
+
+	rc = pm8xxx_writeb(pwm->dev->parent, SSBI_REG_ADDR_LPG_CTL(0),
+									reg);
 	if (rc)
-		pr_err("%s: pm8058_write(): rc=%d (Enable PWM Ctl 0)\n",
-		       __func__, rc);
+		pr_err("pm8xxx_write(): rc=%d (Enable PWM Ctl 0)\n", rc);
 	else
 		pwm->pwm_ctl[0] = reg;
-
 	return rc;
 }
 
 static void pm8058_pwm_calc_period(unsigned int period_us,
-					   struct pw8058_pwm_config *pwm_conf)
+				   struct pm8058_pwm_period *period)
 {
 	int	n, m, clk, div;
 	int	best_m, best_div, best_clk;
@@ -418,120 +358,211 @@ static void pm8058_pwm_calc_period(unsigned int period_us,
 		}
 	}
 
-	pwm_conf->pwm_size = n;
-	pwm_conf->clk = best_clk;
-	pwm_conf->pre_div = best_div;
-	pwm_conf->pre_div_exp = best_m;
+	/* Use higher resolution */
+	if (best_m >= 3 && n == 6) {
+		n += 3;
+		best_m -= 3;
+	}
 
-	pr_debug("%s: period=%u: n=%d, m=%d, clk[%d]=%s, div[%d]=%d\n",
-		__func__, (unsigned)period_us, n, best_m,
-		best_clk, clks[best_clk], best_div, pre_div[best_div]);
+	period->pwm_size = n;
+	period->clk = best_clk;
+	period->pre_div = best_div;
+	period->pre_div_exp = best_m;
+
+	pr_debug("period=%u: n=%d, m=%d, clk[%d]=%s, div[%d]=%d\n",
+		 (unsigned)period_us, n, best_m,
+		 best_clk, clks[best_clk], best_div, pre_div[best_div]);
 }
 
-static int pm8058_pwm_configure(struct pwm_device *pwm,
-			 struct pw8058_pwm_config *pwm_conf)
+static void pm8058_pwm_calc_pwm_value(struct pwm_device *pwm,
+				      unsigned int period_us,
+				      unsigned int duty_us)
 {
-	int	i, rc, len;
-	u8	reg;
+	unsigned int max_pwm_value, tmp;
 
-	reg = (pwm_conf->pwm_size > 6) ? PM8058_PWM_SIZE_9_BIT : 0;
-	pwm->pwm_ctl[5] = reg;
-
-	reg = ((pwm_conf->clk + 1) << PM8058_PWM_CLK_SEL_SHIFT)
-		& PM8058_PWM_CLK_SEL_MASK;
-	reg |= (pwm_conf->pre_div << PM8058_PWM_PREDIVIDE_SHIFT)
-		& PM8058_PWM_PREDIVIDE_MASK;
-	reg |= pwm_conf->pre_div_exp & PM8058_PWM_M_MASK;
-	pwm->pwm_ctl[4] = reg;
-
-	if (pwm_conf->bypass_lut) {
-		pwm->pwm_ctl[0] = 0;
-		pwm->pwm_ctl[1] = PM8058_PWM_BYPASS_LUT;
-		pwm->pwm_ctl[2] = 0;
-
-		if (pwm_conf->pwm_size > 6) {
-			pwm->pwm_ctl[3] = pwm_conf->pwm_value
-						& PM8058_PWM_VALUE_BIT7_0;
-			pwm->pwm_ctl[4] |= (pwm_conf->pwm_value >> 1)
-						& PM8058_PWM_VALUE_BIT8;
-		} else {
-			pwm->pwm_ctl[3] = pwm_conf->pwm_value
-						& PM8058_PWM_VALUE_BIT5_0;
-		}
-
-		len = 6;
+	/* Figure out pwm_value with overflow handling */
+	tmp = 1 << (sizeof(tmp) * 8 - pwm->period.pwm_size);
+	if (duty_us < tmp) {
+		tmp = duty_us << pwm->period.pwm_size;
+		pwm->pwm_value = tmp / period_us;
 	} else {
-		int	pause_cnt, j;
+		tmp = period_us >> pwm->period.pwm_size;
+		pwm->pwm_value = duty_us / tmp;
+	}
+	max_pwm_value = (1 << pwm->period.pwm_size) - 1;
+	if (pwm->pwm_value > max_pwm_value)
+		pwm->pwm_value = max_pwm_value;
+}
 
-		/* Linear search for duty time */
-		for (i = 0; i < PM8058_PWM_1KHZ_COUNT_MAX; i++) {
-			if (duty_msec[i] >= pwm_conf->lut_duty_ms)
+static int pm8058_pwm_change_table(struct pwm_device *pwm, int duty_pct[],
+				   int start_idx, int len, int raw_value)
+{
+	unsigned int pwm_value, max_pwm_value;
+	u8	cfg0, cfg1;
+	int	i, pwm_size;
+	int	rc = 0;
+
+	pwm_size = (pwm->pwm_ctl[5] & PM8058_PWM_SIZE_9_BIT) ? 9 : 6;
+	max_pwm_value = (1 << pwm_size) - 1;
+	for (i = 0; i < len; i++) {
+		if (raw_value)
+			pwm_value = duty_pct[i];
+		else
+			pwm_value = (duty_pct[i] << pwm_size) / 100;
+
+		if (pwm_value > max_pwm_value)
+			pwm_value = max_pwm_value;
+		cfg0 = pwm_value;
+		cfg1 = (pwm_value >> 1) & 0x80;
+		cfg1 |= start_idx + i;
+
+		rc = pm8xxx_writeb(pwm->dev->parent,
+			     SSBI_REG_ADDR_LPG_LUT_CFG0, cfg0);
+		if (rc)
+			break;
+
+		rc = pm8xxx_writeb(pwm->dev->parent,
+			     SSBI_REG_ADDR_LPG_LUT_CFG1, cfg1);
+		if (rc)
+			break;
+	}
+	return rc;
+}
+
+static void pm8058_pwm_save_index(struct pwm_device *pwm,
+				   int low_idx, int high_idx, int flags)
+{
+	pwm->pwm_ctl[1] = high_idx & PM8058_PWM_HIGH_INDEX_MASK;
+	pwm->pwm_ctl[2] = low_idx & PM8058_PWM_LOW_INDEX_MASK;
+
+	if (flags & PM_PWM_LUT_REVERSE)
+		pwm->pwm_ctl[1] |= PM8058_PWM_REVERSE_EN;
+	if (flags & PM_PWM_LUT_RAMP_UP)
+		pwm->pwm_ctl[2] |= PM8058_PWM_RAMP_UP;
+	if (flags & PM_PWM_LUT_LOOP)
+		pwm->pwm_ctl[2] |= PM8058_PWM_LOOP_EN;
+}
+
+static void pm8058_pwm_save_period(struct pwm_device *pwm)
+{
+	u8	mask, val;
+
+	val = ((pwm->period.clk + 1) << PM8058_PWM_CLK_SEL_SHIFT)
+		& PM8058_PWM_CLK_SEL_MASK;
+	val |= (pwm->period.pre_div << PM8058_PWM_PREDIVIDE_SHIFT)
+		& PM8058_PWM_PREDIVIDE_MASK;
+	val |= pwm->period.pre_div_exp & PM8058_PWM_M_MASK;
+	mask = PM8058_PWM_CLK_SEL_MASK | PM8058_PWM_PREDIVIDE_MASK |
+		PM8058_PWM_M_MASK;
+	pm8058_pwm_save(&pwm->pwm_ctl[4], mask, val);
+
+	val = (pwm->period.pwm_size > 6) ? PM8058_PWM_SIZE_9_BIT : 0;
+	mask = PM8058_PWM_SIZE_9_BIT;
+	pm8058_pwm_save(&pwm->pwm_ctl[5], mask, val);
+}
+
+static void pm8058_pwm_save_pwm_value(struct pwm_device *pwm)
+{
+	u8	mask, val;
+
+	pwm->pwm_ctl[3] = pwm->pwm_value;
+
+	val = (pwm->period.pwm_size > 6) ? (pwm->pwm_value >> 1) : 0;
+	mask = PM8058_PWM_VALUE_BIT8;
+	pm8058_pwm_save(&pwm->pwm_ctl[4], mask, val);
+}
+
+static void pm8058_pwm_save_duty_time(struct pwm_device *pwm,
+				      struct pm8058_pwm_lut *lut)
+{
+	int	i;
+	u8	mask, val;
+
+	/* Linear search for duty time */
+	for (i = 0; i < PM8058_PWM_1KHZ_COUNT_MAX; i++) {
+		if (duty_msec[i] >= lut->lut_duty_ms)
+			break;
+	}
+	val = i << PM8058_PWM_1KHZ_COUNT_SHIFT;
+
+	mask = PM8058_PWM_1KHZ_COUNT_MASK;
+	pm8058_pwm_save(&pwm->pwm_ctl[0], mask, val);
+}
+
+static void pm8058_pwm_save_pause(struct pwm_device *pwm,
+				  struct pm8058_pwm_lut *lut)
+{
+	int	i, pause_cnt, time_cnt;
+	u8	mask, val;
+
+	time_cnt = (pwm->pwm_ctl[0] & PM8058_PWM_1KHZ_COUNT_MASK)
+				>> PM8058_PWM_1KHZ_COUNT_SHIFT;
+	if (lut->flags & PM_PWM_LUT_PAUSE_HI_EN) {
+		pause_cnt = (lut->lut_pause_hi + duty_msec[time_cnt] / 2)
+				/ duty_msec[time_cnt];
+		/* Linear search for pause time */
+		for (i = 0; i < PM8058_PWM_PAUSE_COUNT_MAX; i++) {
+			if (pause_count[i] >= pause_cnt)
 				break;
 		}
-		pwm->pwm_ctl[0] = (i << PM8058_PWM_1KHZ_COUNT_SHIFT) &
-					PM8058_PWM_1KHZ_COUNT_MASK;
-		pwm->pwm_ctl[1] = pwm_conf->lut_hi_index &
-					PM8058_PWM_HIGH_INDEX_MASK;
-		pwm->pwm_ctl[2] = pwm_conf->lut_lo_index &
-					PM8058_PWM_LOW_INDEX_MASK;
+		val = (i << PM8058_PWM_PAUSE_COUNT_HI_SHIFT) &
+			PM8058_PWM_PAUSE_COUNT_HI_MASK;
+		val |= PM8058_PWM_PAUSE_ENABLE_HIGH;
+	} else
+		val = 0;
 
-		if (pwm_conf->flags & PM_PWM_LUT_REVERSE)
-			pwm->pwm_ctl[1] |= PM8058_PWM_REVERSE_EN;
-		if (pwm_conf->flags & PM_PWM_LUT_RAMP_UP)
-			pwm->pwm_ctl[2] |= PM8058_PWM_RAMP_UP;
-		if (pwm_conf->flags & PM_PWM_LUT_LOOP)
-			pwm->pwm_ctl[2] |= PM8058_PWM_LOOP_EN;
+	mask = PM8058_PWM_PAUSE_COUNT_HI_MASK | PM8058_PWM_PAUSE_ENABLE_HIGH;
+	pm8058_pwm_save(&pwm->pwm_ctl[5], mask, val);
 
-		/* Pause time */
-		if (pwm_conf->flags & PM_PWM_LUT_PAUSE_HI_EN) {
-			/* Linear search for pause time */
-			pause_cnt = (pwm_conf->lut_pause_hi + duty_msec[i] / 2)
-					/ duty_msec[i];
-			for (j = 0; j < PM8058_PWM_PAUSE_COUNT_MAX; j++) {
-				if (pause_count[j] >= pause_cnt)
-					break;
-			}
-			pwm->pwm_ctl[5] = (j <<
-					   PM8058_PWM_PAUSE_COUNT_HI_SHIFT) &
-						PM8058_PWM_PAUSE_COUNT_HI_MASK;
-			pwm->pwm_ctl[5] |= PM8058_PWM_PAUSE_ENABLE_HIGH;
-		} else
-			pwm->pwm_ctl[5] = 0;
+	if (lut->flags & PM_PWM_LUT_PAUSE_LO_EN) {
+		/* Linear search for pause time */
+		pause_cnt = (lut->lut_pause_lo + duty_msec[time_cnt] / 2)
+				/ duty_msec[time_cnt];
+		for (i = 0; i < PM8058_PWM_PAUSE_COUNT_MAX; i++) {
+			if (pause_count[i] >= pause_cnt)
+				break;
+		}
+		val = (i << PM8058_PWM_PAUSE_COUNT_LO_SHIFT) &
+			PM8058_PWM_PAUSE_COUNT_LO_MASK;
+		val |= PM8058_PWM_PAUSE_ENABLE_LOW;
+	} else
+		val = 0;
 
-		if (pwm_conf->flags & PM_PWM_LUT_PAUSE_LO_EN) {
-			/* Linear search for pause time */
-			pause_cnt = (pwm_conf->lut_pause_lo + duty_msec[i] / 2)
-					/ duty_msec[i];
-			for (j = 0; j < PM8058_PWM_PAUSE_COUNT_MAX; j++) {
-				if (pause_count[j] >= pause_cnt)
-					break;
-			}
-			pwm->pwm_ctl[6] = (j <<
-					   PM8058_PWM_PAUSE_COUNT_LO_SHIFT) &
-						PM8058_PWM_PAUSE_COUNT_LO_MASK;
-			pwm->pwm_ctl[6] |= PM8058_PWM_PAUSE_ENABLE_LOW;
-		} else
-			pwm->pwm_ctl[6] = 0;
+	mask = PM8058_PWM_PAUSE_COUNT_LO_MASK | PM8058_PWM_PAUSE_ENABLE_LOW;
+	pm8058_pwm_save(&pwm->pwm_ctl[6], mask, val);
+}
 
-		len = 7;
-	}
+static int pm8058_pwm_write(struct pwm_device *pwm, int start, int end)
+{
+	int	i, rc;
 
-	pm8058_pwm_bank_sel(pwm);
-
-	for (i = 0; i < len; i++) {
-	#ifdef CONFIG_MSM_SSBI
-		rc = pm8058_writeb(pwm_chip->dev->parent,  SSBI_REG_ADDR_LPG_CTL(i), pwm->pwm_ctl[i]);
-	#else
-		rc = pm8058_write(pwm->chip->pm_chip,
+	/* Write in reverse way so 0 would be the last */
+	for (i = end - 1; i >= start; i--) {
+		rc = pm8xxx_writeb(pwm->dev->parent,
 				  SSBI_REG_ADDR_LPG_CTL(i),
-				  &pwm->pwm_ctl[i], 1);
-	#endif
+				  pwm->pwm_ctl[i]);
 		if (rc) {
-			pr_err("%s: pm8058_write(): rc=%d (PWM Ctl[%d])\n",
-			       __func__, rc, i);
-			break;
+			pr_err("pm8xxx_write(): rc=%d (PWM Ctl[%d])\n", rc, i);
+			return rc;
 		}
 	}
+
+	return 0;
+}
+
+static int pm8058_pwm_change_lut(struct pwm_device *pwm,
+				 struct pm8058_pwm_lut *lut)
+{
+	int	rc;
+
+	pm8058_pwm_save_index(pwm, lut->lut_lo_index,
+			     lut->lut_hi_index, lut->flags);
+	pm8058_pwm_save_duty_time(pwm, lut);
+	pm8058_pwm_save_pause(pwm, lut);
+	pm8058_pwm_save(&pwm->pwm_ctl[1], PM8058_PWM_BYPASS_LUT, 0);
+
+	pm8058_pwm_bank_sel(pwm);
+	rc = pm8058_pwm_write(pwm, 0, 7);
 
 	return rc;
 }
@@ -554,6 +585,12 @@ struct pwm_device *pwm_request(int pwm_id, const char *label)
 	if (!pwm->in_use) {
 		pwm->in_use = 1;
 		pwm->label = label;
+/* Do not to enable LED when request PWM
+		pwm->use_lut = 0;
+
+		if (pwm_chip->pdata && pwm_chip->pdata->config)
+			pwm_chip->pdata->config(pwm, pwm_id, 1);
+*/
 	} else
 		pwm = ERR_PTR(-EBUSY);
 	mutex_unlock(&pwm_chip->pwm_mutex);
@@ -575,6 +612,9 @@ void pwm_free(struct pwm_device *pwm)
 		pm8058_pwm_bank_sel(pwm);
 		pm8058_pwm_start(pwm, 0, 0);
 
+		if (pwm->chip->pdata && pwm->chip->pdata->config)
+			pwm->chip->pdata->config(pwm, pwm->pwm_id, 0);
+
 		pwm->in_use = 0;
 		pwm->label = NULL;
 	}
@@ -592,14 +632,12 @@ EXPORT_SYMBOL(pwm_free);
  */
 int pwm_config(struct pwm_device *pwm, int duty_us, int period_us)
 {
-	struct pw8058_pwm_config	pwm_conf;
-	unsigned int max_pwm_value, tmp;
-	int	rc;
+	int				rc;
 
 	if (pwm == NULL || IS_ERR(pwm) ||
-	    (unsigned)duty_us > (unsigned)period_us ||
-	    (unsigned)period_us > PM_PWM_PERIOD_MAX ||
-	    (unsigned)period_us < PM_PWM_PERIOD_MIN)
+		duty_us > period_us ||
+		(unsigned)period_us > PM_PWM_PERIOD_MAX ||
+		(unsigned)period_us < PM_PWM_PERIOD_MIN)
 		return -EINVAL;
 	if (pwm->chip == NULL)
 		return -ENODEV;
@@ -611,57 +649,29 @@ int pwm_config(struct pwm_device *pwm, int duty_us, int period_us)
 		goto out_unlock;
 	}
 
-	pm8058_pwm_calc_period(period_us, &pwm_conf);
-
-	/* Figure out pwm_value with overflow handling */
-	if ((unsigned)period_us > (1 << pwm_conf.pwm_size)) {
-		tmp = period_us;
-		tmp >>= pwm_conf.pwm_size;
-		pwm_conf.pwm_value = (unsigned)duty_us / tmp;
-	} else {
-		tmp = duty_us;
-		tmp <<= pwm_conf.pwm_size;
-		pwm_conf.pwm_value = tmp / (unsigned)period_us;
+	if (pwm->pwm_period != period_us) {
+		pm8058_pwm_calc_period(period_us, &pwm->period);
+		pm8058_pwm_save_period(pwm);
+		pwm->pwm_period = period_us;
 	}
-	max_pwm_value = (1 << pwm_conf.pwm_size) - 1;
-	if (pwm_conf.pwm_value > max_pwm_value)
-		pwm_conf.pwm_value = max_pwm_value;
 
-	pwm_conf.bypass_lut = 1;
+	pm8058_pwm_calc_pwm_value(pwm, period_us, duty_us);
+	pm8058_pwm_save_pwm_value(pwm);
+	pm8058_pwm_save(&pwm->pwm_ctl[1],
+			PM8058_PWM_BYPASS_LUT, PM8058_PWM_BYPASS_LUT);
 
-	pr_debug("%s: duty/period=%u/%u usec: pwm_value=%d (of %d)\n",
-		 __func__, (unsigned)duty_us, (unsigned)period_us,
-		 pwm_conf.pwm_value, 1 << pwm_conf.pwm_size);
+	pm8058_pwm_bank_sel(pwm);
+	rc = pm8058_pwm_write(pwm, 1, 6);
 
-	rc = pm8058_pwm_configure(pwm, &pwm_conf);
+	pr_debug("duty/period=%u/%u usec: pwm_value=%d (of %d)\n",
+		 (unsigned)duty_us, (unsigned)period_us,
+		 pwm->pwm_value, 1 << pwm->period.pwm_size);
 
 out_unlock:
 	mutex_unlock(&pwm->chip->pwm_mutex);
 	return rc;
 }
 EXPORT_SYMBOL(pwm_config);
-
-/*
- * pwm_configure - change a PWM device configuration
- */
-int pwm_configure(struct pwm_device *pwm, struct pw8058_pwm_config *pwm_conf)
-{
-	int	rc;
-
-	if (pwm == NULL || IS_ERR(pwm) || pwm_conf == NULL)
-		return -EINVAL;
-	if (pwm->chip == NULL)
-		return -ENODEV;
-
-	mutex_lock(&pwm->chip->pwm_mutex);
-	if (!pwm->in_use)
-		rc = -EINVAL;
-	else
-		rc = pm8058_pwm_configure(pwm, pwm_conf);
-	mutex_unlock(&pwm->chip->pwm_mutex);
-	return rc;
-}
-EXPORT_SYMBOL(pwm_configure);
 
 /*
  * pwm_enable - start a PWM output toggling
@@ -679,6 +689,9 @@ int pwm_enable(struct pwm_device *pwm)
 	if (!pwm->in_use)
 		rc = -EINVAL;
 	else {
+		if (pwm->chip->pdata && pwm->chip->pdata->enable)
+			pwm->chip->pdata->enable(pwm, pwm->pwm_id, 1);
+
 		rc = pm8058_pwm_bank_enable(pwm, 1);
 
 		pm8058_pwm_bank_sel(pwm);
@@ -703,12 +716,158 @@ void pwm_disable(struct pwm_device *pwm)
 		pm8058_pwm_start(pwm, 0, 0);
 
 		pm8058_pwm_bank_enable(pwm, 0);
+
+		if (pwm->chip->pdata && pwm->chip->pdata->enable)
+			pwm->chip->pdata->enable(pwm, pwm->pwm_id, 0);
 	}
 	mutex_unlock(&pwm->chip->pwm_mutex);
 }
 EXPORT_SYMBOL(pwm_disable);
 
+/**
+ * pm8058_pwm_config_period - change PWM period
+ *
+ * @pwm: the PWM device
+ * @pwm_p: period in struct pm8058_pwm_period
+ */
+int pm8058_pwm_config_period(struct pwm_device *pwm,
+			     struct pm8058_pwm_period *period)
+{
+	int			rc;
+
+	if (pwm == NULL || IS_ERR(pwm) || period == NULL)
+		return -EINVAL;
+	if (pwm->chip == NULL)
+		return -ENODEV;
+
+	mutex_lock(&pwm->chip->pwm_mutex);
+
+	if (!pwm->in_use) {
+		rc = -EINVAL;
+		goto out_unlock;
+	}
+
+	pwm->period.pwm_size = period->pwm_size;
+	pwm->period.clk = period->clk;
+	pwm->period.pre_div = period->pre_div;
+	pwm->period.pre_div_exp = period->pre_div_exp;
+
+	pm8058_pwm_save_period(pwm);
+	pm8058_pwm_bank_sel(pwm);
+	rc = pm8058_pwm_write(pwm, 4, 6);
+
+out_unlock:
+	mutex_unlock(&pwm->chip->pwm_mutex);
+	return rc;
+}
+EXPORT_SYMBOL(pm8058_pwm_config_period);
+
+/**
+ * pm8058_pwm_config_duty_cycle - change PWM duty cycle
+ *
+ * @pwm: the PWM device
+ * @pwm_value: the duty cycle in raw PWM value (< 2^pwm_size)
+ */
+int pm8058_pwm_config_duty_cycle(struct pwm_device *pwm, int pwm_value)
+{
+	struct pm8058_pwm_lut	lut;
+	int		flags, start_idx;
+	int		rc = 0;
+
+	if (pwm == NULL || IS_ERR(pwm))
+		return -EINVAL;
+	if (pwm->chip == NULL)
+		return -ENODEV;
+
+	mutex_lock(&pwm->chip->pwm_mutex);
+
+	if (!pwm->in_use || !pwm->pwm_period) {
+		rc = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (pwm->pwm_value == pwm_value)
+		goto out_unlock;
+
+	pwm->pwm_value = pwm_value;
+	flags = PM_PWM_LUT_RAMP_UP;
+
+	start_idx = pwm->pwm_id * CHAN_LUT_SIZE;
+	pm8058_pwm_change_table(pwm, &pwm_value, start_idx, 1, 1);
+
+	if (!pwm->use_lut) {
+		pwm->use_lut = 1;
+
+		lut.lut_duty_ms = 1;
+		lut.lut_lo_index = start_idx;
+		lut.lut_hi_index = start_idx;
+		lut.lut_pause_lo = 0;
+		lut.lut_pause_hi = 0;
+		lut.flags = flags;
+
+		rc = pm8058_pwm_change_lut(pwm, &lut);
+	} else {
+		pm8058_pwm_save_index(pwm, start_idx, start_idx, flags);
+		pm8058_pwm_save(&pwm->pwm_ctl[1], PM8058_PWM_BYPASS_LUT, 0);
+
+		pm8058_pwm_bank_sel(pwm);
+		rc = pm8058_pwm_write(pwm, 0, 3);
+	}
+
+	if (rc)
+		pr_err("[%d]: pm8058_pwm_write: rc=%d\n", pwm->pwm_id, rc);
+
+out_unlock:
+	mutex_unlock(&pwm->chip->pwm_mutex);
+	return rc;
+}
+EXPORT_SYMBOL(pm8058_pwm_config_duty_cycle);
+
 /*
+ * pwm_configure - change a PWM device configuration
+ */
+int pwm_configure(struct pwm_device *pwm, struct pm8058_pwm_period *pwm_conf, int bypass_lut, int pwm_value)
+{
+	int	rc;
+
+	if (pwm == NULL || IS_ERR(pwm) || pwm_conf == NULL)
+		return -EINVAL;
+	if (pwm->chip == NULL)
+		return -ENODEV;
+
+	if (!pwm->in_use)
+		rc = -EINVAL;
+	else {
+		pm8058_pwm_config_period(pwm, pwm_conf);
+		{
+			mutex_lock(&pwm->chip->pwm_mutex);
+
+			pwm->pwm_ctl[0] = 0;
+			pwm->pwm_ctl[1] = PM8058_PWM_BYPASS_LUT;
+			pwm->pwm_ctl[2] = 0;
+
+			if (pwm_conf->pwm_size > 6) {
+				pwm->pwm_ctl[3] = pwm_value
+							& PM8058_PWM_VALUE_BIT7_0;
+				pm8058_pwm_save(&pwm->pwm_ctl[4], PM8058_PWM_VALUE_BIT8, pwm_value >> 1);
+			} else {
+				pwm->pwm_ctl[3] = pwm_value
+							& PM8058_PWM_VALUE_BIT5_0;
+			}
+
+			pm8058_pwm_bank_sel(pwm);
+			rc = pm8058_pwm_write(pwm, 0, (pwm_conf->pwm_size > 6)? 4 : 3);
+
+			mutex_unlock(&pwm->chip->pwm_mutex);
+		}
+	}
+	return rc;
+}
+EXPORT_SYMBOL(pwm_configure);
+
+
+
+/**
  * pm8058_pwm_lut_config - change a PWM device configuration to use LUT
  *
  * @pwm: the PWM device
@@ -720,19 +879,18 @@ EXPORT_SYMBOL(pwm_disable);
  * @pause_lo: pause time in millisecond at low index
  * @pause_hi: pause time in millisecond at high index
  * @flags: control flags
- *
  */
 int pm8058_pwm_lut_config(struct pwm_device *pwm, int period_us,
 			  int duty_pct[], int duty_time_ms, int start_idx,
 			  int idx_len, int pause_lo, int pause_hi, int flags)
 {
-	struct pw8058_pwm_config	pwm_conf;
-	unsigned int pwm_value, max_pwm_value;
-	u8	cfg0, cfg1;
-	int	i, len;
+	struct pm8058_pwm_lut		lut;
+	int	len;
 	int	rc;
 
-	if (pwm == NULL || IS_ERR(pwm) || duty_pct == NULL || !idx_len)
+	if (pwm == NULL || IS_ERR(pwm) || !idx_len)
+		return -EINVAL;
+	if (duty_pct == NULL && !(flags & PM_PWM_LUT_NO_TABLE))
 		return -EINVAL;
 	if (pwm->chip == NULL)
 		return -ENODEV;
@@ -741,7 +899,7 @@ int pm8058_pwm_lut_config(struct pwm_device *pwm, int period_us,
 	if ((start_idx + idx_len) > PM_PWM_LUT_SIZE)
 		return -EINVAL;
 	if ((unsigned)period_us > PM_PWM_PERIOD_MAX ||
-	    (unsigned)period_us < PM_PWM_PERIOD_MIN)
+		(unsigned)period_us < PM_PWM_PERIOD_MIN)
 		return -EINVAL;
 
 	mutex_lock(&pwm->chip->pwm_mutex);
@@ -751,45 +909,32 @@ int pm8058_pwm_lut_config(struct pwm_device *pwm, int period_us,
 		goto out_unlock;
 	}
 
-	pm8058_pwm_calc_period(period_us, &pwm_conf);
+	if (pwm->pwm_period != period_us) {
+		pm8058_pwm_calc_period(period_us, &pwm->period);
+		pm8058_pwm_save_period(pwm);
+		pwm->pwm_period = period_us;
+	}
 
 	len = (idx_len > PM_PWM_LUT_SIZE) ? PM_PWM_LUT_SIZE : idx_len;
 
-	max_pwm_value = (1 << pwm_conf.pwm_size) - 1;
-	for (i = 0; i < len; i++) {
-		pwm_value = (duty_pct[i] << pwm_conf.pwm_size) / 100;
-		/* Avoid overflow */
-		if (pwm_value > max_pwm_value)
-			pwm_value = max_pwm_value;
-		cfg0 = pwm_value & 0xff;
-		cfg1 = (pwm_value >> 1) & 0x80;
-		cfg1 |= start_idx + i;
+	if (flags & PM_PWM_LUT_NO_TABLE)
+		goto after_table_write;
 
-		pr_debug("%s: %d: pwm=%d\n", __func__, i, pwm_value);
-#ifdef CONFIG_MSM_SSBI
-		pm8058_writeb(pwm_chip->dev->parent,
-			SSBI_REG_ADDR_LPG_LUT_CFG0, cfg0);
-		pm8058_writeb(pwm_chip->dev->parent,
-			SSBI_REG_ADDR_LPG_LUT_CFG1, cfg1);
-#else
-		pm8058_write(pwm->chip->pm_chip,
-			     SSBI_REG_ADDR_LPG_LUT_CFG0,
-			     &cfg0, 1);
-		pm8058_write(pwm->chip->pm_chip,
-			     SSBI_REG_ADDR_LPG_LUT_CFG1,
-			     &cfg1, 1);
-#endif
+	rc = pm8058_pwm_change_table(pwm, duty_pct, start_idx, len, 0);
+	if (rc) {
+		pr_err("pm8058_pwm_change_table: rc=%d\n", rc);
+		goto out_unlock;
 	}
 
-	pwm_conf.lut_duty_ms = duty_time_ms;
-	pwm_conf.lut_lo_index = start_idx;
-	pwm_conf.lut_hi_index = start_idx + len - 1;
-	pwm_conf.lut_pause_lo = pause_lo;
-	pwm_conf.lut_pause_hi = pause_hi;
-	pwm_conf.flags = flags;
-	pwm_conf.bypass_lut = 0;
+after_table_write:
+	lut.lut_duty_ms = duty_time_ms;
+	lut.lut_lo_index = start_idx;
+	lut.lut_hi_index = start_idx + len - 1;
+	lut.lut_pause_lo = pause_lo;
+	lut.lut_pause_hi = pause_hi;
+	lut.flags = flags;
 
-	rc = pm8058_pwm_configure(pwm, &pwm_conf);
+	rc = pm8058_pwm_change_lut(pwm, &lut);
 
 out_unlock:
 	mutex_unlock(&pwm->chip->pwm_mutex);
@@ -797,7 +942,7 @@ out_unlock:
 }
 EXPORT_SYMBOL(pm8058_pwm_lut_config);
 
-/*
+/**
  * pm8058_pwm_lut_enable - control a PWM device to start/stop LUT ramp
  *
  * @pwm: the PWM device
@@ -857,13 +1002,8 @@ int pm8058_pwm_config_led(struct pwm_device *pwm, int id,
 	case PM_PWM_LED_2:
 		conf = mode & PM8058_LED_MODE_MASK;
 		conf |= (max_current / 2) << PM8058_LED_CURRENT_SHIFT;
-#ifdef CONFIG_MSM_SSBI
-		rc = pm8058_writeb(pwm_chip->dev->parent,
-				   SSBI_REG_ADDR_LED(id), conf);
-#else
-		rc = pm8058_write(pwm->chip->pm_chip,
-				  SSBI_REG_ADDR_LED(id), &conf, 1);
-#endif
+		rc = pm8xxx_writeb(pwm->dev->parent,
+				  SSBI_REG_ADDR_LED(id), conf);
 		break;
 
 	case PM_PWM_LED_KPD:
@@ -887,13 +1027,8 @@ int pm8058_pwm_config_led(struct pwm_device *pwm, int id,
 		}
 		conf |= (max_current / 20) << PM8058_FLASH_CURRENT_SHIFT;
 		id -= PM_PWM_LED_KPD;
-#ifdef CONFIG_MSM_SSBI
-		rc = pm8058_writeb(pwm_chip->dev->parent,
-				   SSBI_REG_ADDR_FLASH(id), conf);
-#else
-		rc = pm8058_write(pwm->chip->pm_chip,
-				  SSBI_REG_ADDR_FLASH(id), &conf, 1);
-#endif
+		rc = pm8xxx_writeb(pwm->dev->parent,
+				  SSBI_REG_ADDR_FLASH(id), conf);
 		break;
 	default:
 		rc = -EINVAL;
@@ -904,7 +1039,7 @@ int pm8058_pwm_config_led(struct pwm_device *pwm, int id,
 }
 EXPORT_SYMBOL(pm8058_pwm_config_led);
 
-int pwm_set_dtest(struct pwm_device *pwm, int enable)
+int pm8058_pwm_set_dtest(struct pwm_device *pwm, int enable)
 {
 	int	rc;
 	u8	reg;
@@ -914,7 +1049,6 @@ int pwm_set_dtest(struct pwm_device *pwm, int enable)
 	if (pwm->chip == NULL)
 		return -ENODEV;
 
-	mutex_lock(&pwm->chip->pwm_mutex);
 	if (!pwm->in_use)
 		rc = -EINVAL;
 	else {
@@ -923,69 +1057,40 @@ int pwm_set_dtest(struct pwm_device *pwm, int enable)
 			/* Only Test 1 available */
 			reg |= (1 << PM8058_PWM_DTEST_SHIFT) &
 				PM8058_PWM_DTEST_MASK;
-#ifdef CONFIG_MSM_SSBI
-		rc = pm8058_writeb(pwm_chip->dev->parent,
-			     SSBI_REG_ADDR_LPG_TEST,
-			     reg);
-#else
-		rc = pm8058_write(pwm->chip->pm_chip, SSBI_REG_ADDR_LPG_TEST,
-				  &reg, 1);
-#endif
+		rc = pm8xxx_writeb(pwm->dev->parent,
+			SSBI_REG_ADDR_LPG_TEST, reg);
 		if (rc)
-			pr_err("%s: pm8058_write(DTEST=0x%x): rc=%d\n",
-			       __func__, reg, rc);
+			pr_err("pm8xxx_write(DTEST=0x%x): rc=%d\n", reg, rc);
+
 	}
-	mutex_unlock(&pwm->chip->pwm_mutex);
 	return rc;
 }
-EXPORT_SYMBOL(pwm_set_dtest);
+EXPORT_SYMBOL(pm8058_pwm_set_dtest);
 
 static int __devinit pmic8058_pwm_probe(struct platform_device *pdev)
 {
-#ifdef CONFIG_MSM_SSBI
-	struct pm8058 *pm_chip;
-#else
-	struct pm8058_chip	*pm_chip;
-#endif
 	struct pm8058_pwm_chip	*chip;
 	int	i;
 
-	pm_chip = platform_get_drvdata(pdev);
-	if (pm_chip == NULL) {
-		pr_err("%s: no parent data passed in.\n", __func__);
-		return -EFAULT;
-	}
-
 	chip = kzalloc(sizeof *chip, GFP_KERNEL);
 	if (chip == NULL) {
-		pr_err("%s: kzalloc() failed.\n", __func__);
+		pr_err("kzalloc() failed.\n");
 		return -ENOMEM;
 	}
 
 	for (i = 0; i < PM8058_PWM_CHANNELS; i++) {
 		chip->pwm_dev[i].pwm_id = i;
 		chip->pwm_dev[i].chip = chip;
+		chip->pwm_dev[i].dev = &pdev->dev;
 	}
 
 	mutex_init(&chip->pwm_mutex);
 
-	chip->pm_chip = pm_chip;
+	chip->pdata = pdev->dev.platform_data;
 	pwm_chip = chip;
 	platform_set_drvdata(pdev, chip);
-#ifdef CONFIG_MSM_SSBI
-	chip->dev = &pdev->dev;/*vito*/
-	if (pwm_chip->dev->parent == NULL)
-		pr_notice("%s: pwm_chip->dev->parent == NULL\n", __func__);
-	else if (pwm_chip->dev == NULL)
-		pr_notice("%s: pwm_chip->dev == NULL\n", __func__);
-	else if (chip->dev->parent == NULL)
-		pr_notice("%s: chip->dev->parent == NULL\n", __func__);
-	else if (chip->dev == NULL)
-		pr_notice("%s: chip->dev== NULL\n", __func__);
-	else
-		pr_notice("%s: chip->dev OK\n", __func__);
-#endif
-	pr_notice("%s: OK\n", __func__);
+
+	pr_notice("OK\n");
 	return 0;
 }
 
@@ -1020,7 +1125,7 @@ static void __exit pm8058_pwm_exit(void)
 subsys_initcall(pm8058_pwm_init);
 module_exit(pm8058_pwm_exit);
 
-MODULE_LICENSE("Dual BSD/GPL");
+MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("PMIC8058 PWM driver");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:pmic8058_pwm");

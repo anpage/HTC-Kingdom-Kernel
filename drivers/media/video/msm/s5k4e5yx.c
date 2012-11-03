@@ -66,6 +66,8 @@
 
 #ifdef CONFIG_MSM_CAMERA_8X60
 #include <mach/camera-8x60.h>
+#elif defined(CONFIG_MSM_CAMERA_7X30)
+#include <mach/camera-7x30.h>
 #else
 #include <mach/camera.h>
 #endif
@@ -75,27 +77,61 @@
 #include <mach/vreg.h>
 #include <asm/mach-types.h>
 #include "s5k4e5yx.h"
+#ifdef CONFIG_RAWCHIP
+#include "rawchip/Yushan_API.h"
+#include "rawchip/rawchip_spi.h"
+#endif
 
 /* CAMIF output resolutions */
 /* 816x612, 24MHz MCLK 96MHz PCLK */
 #define SENSOR_FULL_SIZE_WIDTH 2608
 #define SENSOR_FULL_SIZE_HEIGHT 1960
 
-#define SENSOR_QTR_SIZE_WIDTH 2608 /*1304: workaround*/
-#define SENSOR_QTR_SIZE_HEIGHT 1960 /*980: workaround*/
+#define SENSOR_QTR_SIZE_WIDTH 1304
+#define SENSOR_QTR_SIZE_HEIGHT 980
 
-#define SENSOR_HRZ_FULL_BLK_PIXELS 192/*Aaron0706: 575*/
-#define SENSOR_VER_FULL_BLK_LINES 12 /*Aaron0706: 582 */
-#define SENSOR_HRZ_QTR_BLK_PIXELS 192 /*1879: workaround */
-#define SENSOR_VER_QTR_BLK_LINES 12 /*296:workaround Aaron0706: 12 Aaron */
+#define SENSOR_VIDEO_SIZE_WIDTH_FAST 1304 /* 652 */
+#define SENSOR_VIDEO_SIZE_HEIGHT_FAST  980
 
+// 652x391
+#define SENSOR_VIDEO_SIZE_WIDTH_FAST_4X  0x28c
+#define SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X   0x187 
+#define SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST_4X       (0xab2-SENSOR_VIDEO_SIZE_WIDTH_FAST_4X)  // 1434
+#define SENSOR_VER_VIDEO_BLK_LINES_FAST_4X (0x1f0-SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X) //(0x1fa-SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X) // (0x220-SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X)
+
+#ifdef CONFIG_RAWCHIP
+#define SENSOR_HRZ_FULL_BLK_PIXELS 192 /* Mu Lee 0706 575 */
+#define SENSOR_VER_FULL_BLK_LINES 112 //36 /* rawchip 12 */ /* Mu Lee 0706 582 *//* 12 Aaron */
+#define SENSOR_HRZ_QTR_BLK_PIXELS 1879
+#define SENSOR_VER_QTR_BLK_LINES 296 /* 296 *//* 12 Aaron *//*Mu Lee 24fps*/
+//#define SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST 1434 /* 2086 */
+//#define SENSOR_VER_VIDEO_BLK_LINES_FAST 43 /* rawchip 12 */ /* 236 */
+
+#define SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST (0xab2-SENSOR_VIDEO_SIZE_WIDTH_FAST) // 1434 /* 2086 */
+#define SENSOR_VER_VIDEO_BLK_LINES_FAST (0x400-SENSOR_VIDEO_SIZE_HEIGHT_FAST) //43 /* rawchip 12 */ /* 236 */
+
+#else
+#define SENSOR_HRZ_FULL_BLK_PIXELS 192 /* Mu Lee 0706 575 */
+#define SENSOR_VER_FULL_BLK_LINES 12 /* Mu Lee 0706 582 *//* 12 Aaron */
+#define SENSOR_HRZ_QTR_BLK_PIXELS 1879
+#define SENSOR_VER_QTR_BLK_LINES 622 /* 296 *//* 12 Aaron *//*Mu Lee 24fps*/
+#define SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST 1434 /* 2086 */
+#define SENSOR_VER_VIDEO_BLK_LINES_FAST 12 /* 236 */
+#endif
 #define S5K4E5YX_AF_I2C_ADDR 0x18
 #define S5K4E5YX_VCM_CODE_MSB 0x04
 #define S5K4E5YX_VCM_CODE_LSB 0x05
+#ifndef CONFIG_RAWCHIP  
 #define S5K4E5YX_TOTAL_STEPS_NEAR_TO_FAR 42
+#else
+#define S5K4E5YX_TOTAL_STEPS_NEAR_TO_FAR 128
+#endif
 #define S5K4E5YX_SW_DAMPING_STEP 10
-#define S5K4E5YX_MAX_FPS 22 /* 30 */
+#define S5K4E5YX_MAX_FPS 30
 
+/* For Optical AF measure*/
+#define AF_START_POSITION 200
+#define AF_STEP_SIZE 5
 /*=============================================================
  SENSOR REGISTER DEFINES
 ==============================================================*/
@@ -103,6 +139,9 @@
 #define S5K4E5YX_REG_MODEL_ID 0x0000
 #define S5K4E5YX_MODEL_ID 0x4E10
 #define S5K4E5YX_MODEL_ID_1 0x4E50 /*for 2nd MODEL ID for the same sensor*/
+#define S5K4E5YX_EVT1 1
+#define S5K4E5YX_EVT2 2
+
 
 /* Color bar pattern selection */
 #define S5K4E5YX_COLOR_BAR_PATTERN_SEL_REG 0x0601
@@ -122,17 +161,23 @@
 #define S5K4E5YX_REG_MODE_SELECT 0x0100
 #define S5K4E5YX_MODE_SELECT_STREAM 0x01 /* start streaming */
 #define S5K4E5YX_MODE_SELECT_SW_STANDBY 0x00 /* software standby */
+
+/* Internal Regulator register*/
+#define S5K4E5YX_REG_INT_RGL_SET 0x302E
+#define S5K4E5YX_MODE_INT_RGL_ON 0x08
+#define S5K4E5YX_MODE_INT_RGL_OFF 0x0B
+
 /* Read Mode */
 #define S5K4E5YX_REG_READ_MODE 0x0101
 #define S5K4E5YX_READ_NORMAL_MODE 0x00	/* without mirror/flip */
 #define S5K4E5YX_READ_MIRROR_FLIP 0x03	/* with mirror/flip */
 
-////////////////////////////
+/*//////////////////////////*/
 
 #define Q8 0x00000100
 #define SENSOR_DEFAULT_CLOCK_RATE 24000000
 
-////////////////////////////////////////////////////////////
+/*//////////////////////////////////////////////////////////*/
 
 /*============================================================================
  TYPE DECLARATIONS
@@ -155,6 +200,10 @@ enum s5k4e5yx_test_mode_t {
 enum s5k4e5yx_resolution_t {
 	QTR_SIZE,
 	FULL_SIZE,
+	QVGA_SIZE,
+	VIDEO_SIZE,
+	FAST_VIDEO_SIZE,
+	FAST_VIDEO_4X_SIZE,
 	INVALID_SIZE
 };
 
@@ -202,7 +251,7 @@ struct s5k4e5yx_work {
 
 static struct  s5k4e5yx_work *s5k4e5yx_sensorw;
 static struct  i2c_client *s5k4e5yx_client;
-static uint16_t s5k4e5yx_pos_tbl[S5K4E5YX_TOTAL_STEPS_NEAR_TO_FAR + 1];
+uint16_t s5k4e5yx_pos_tbl[S5K4E5YX_TOTAL_STEPS_NEAR_TO_FAR + 1];
 
 struct s5k4e5yx_ctrl_t {
   const struct  msm_camera_sensor_info *sensordata;
@@ -238,7 +287,7 @@ struct s5k4e5yx_waitevent{
 };
 
 static DECLARE_WAIT_QUEUE_HEAD(s5k4e5yx_wait_queue);
-DECLARE_MUTEX(s5k4e5yx_sem);
+DEFINE_SEMAPHORE(s5k4e5yx_sem);
 
 
 /*=============================================================*/
@@ -370,9 +419,9 @@ retry:
     udelay(10);
     count++;
     if (count < 20) {
-      if (count > 10)
-        udelay(100);
-    } else
+		if (count > 10)
+		udelay(100);
+	} else
       return rc;
     goto retry;
   }
@@ -392,6 +441,16 @@ static void s5k4e5yx_get_pict_fps(uint16_t fps, uint16_t *pfps)
 
 		preview_height =
 			SENSOR_QTR_SIZE_HEIGHT + SENSOR_VER_QTR_BLK_LINES;
+  } else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_SIZE) {
+		preview_width =
+			SENSOR_VIDEO_SIZE_WIDTH_FAST	+ SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST;
+		preview_height =
+			SENSOR_VIDEO_SIZE_HEIGHT_FAST + SENSOR_VER_VIDEO_BLK_LINES_FAST;
+	} else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_4X_SIZE) {
+		preview_width =
+			SENSOR_VIDEO_SIZE_WIDTH_FAST_4X	+ SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST_4X;
+		preview_height =
+			SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X + SENSOR_VER_VIDEO_BLK_LINES_FAST_4X;
 	} else {
 		/* full size resolution used for preview. */
 		preview_width =
@@ -423,56 +482,50 @@ static void s5k4e5yx_get_pict_fps(uint16_t fps, uint16_t *pfps)
 
 static uint16_t s5k4e5yx_get_prev_lines_pf(void)
 {
-	if (s5k4e5yx_ctrl->prev_res == QTR_SIZE) {
+	if (s5k4e5yx_ctrl->prev_res == QTR_SIZE)
 		return (SENSOR_QTR_SIZE_HEIGHT + SENSOR_VER_QTR_BLK_LINES);
-	} else  {
+	else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_SIZE)
+		return (SENSOR_VIDEO_SIZE_HEIGHT_FAST + SENSOR_VER_VIDEO_BLK_LINES_FAST);
+	else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_4X_SIZE)
+		return (SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X + SENSOR_VER_VIDEO_BLK_LINES_FAST_4X);	
+	else
 		return (SENSOR_FULL_SIZE_HEIGHT + SENSOR_VER_FULL_BLK_LINES);
-	}
 }
 
 static uint16_t s5k4e5yx_get_prev_pixels_pl(void)
 {
-	if (s5k4e5yx_ctrl->prev_res == QTR_SIZE) {
+	if (s5k4e5yx_ctrl->prev_res == QTR_SIZE)
 		return (SENSOR_QTR_SIZE_WIDTH + SENSOR_HRZ_QTR_BLK_PIXELS);
-	} else  {
+	else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_SIZE)
+		return (SENSOR_VIDEO_SIZE_WIDTH_FAST + SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST);
+	else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_4X_SIZE)
+	    return (SENSOR_VIDEO_SIZE_WIDTH_FAST_4X + SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST_4X);
+	else
 		return (SENSOR_FULL_SIZE_WIDTH + SENSOR_HRZ_FULL_BLK_PIXELS);
-}
 }
 
 static uint16_t s5k4e5yx_get_pict_lines_pf(void)
 {
-	if (s5k4e5yx_ctrl->pict_res == QTR_SIZE) {
+	if (s5k4e5yx_ctrl->pict_res == QTR_SIZE)
 		return (SENSOR_QTR_SIZE_HEIGHT + SENSOR_VER_QTR_BLK_LINES);
-	} else  {
+	else
 		return (SENSOR_FULL_SIZE_HEIGHT + SENSOR_VER_FULL_BLK_LINES);
-	}
 }
 
 static uint16_t s5k4e5yx_get_pict_pixels_pl(void)
 {
-	if (s5k4e5yx_ctrl->pict_res == QTR_SIZE) {
+	if (s5k4e5yx_ctrl->pict_res == QTR_SIZE)
 		return (SENSOR_QTR_SIZE_WIDTH + SENSOR_HRZ_QTR_BLK_PIXELS);
-	} else  {
+	else
 		return (SENSOR_FULL_SIZE_WIDTH + SENSOR_HRZ_FULL_BLK_PIXELS);
-	}
 }
 
 static uint32_t s5k4e5yx_get_pict_max_exp_lc(void)
 {
-	if (s5k4e5yx_ctrl->pict_res == QTR_SIZE) {
+	if (s5k4e5yx_ctrl->pict_res == QTR_SIZE)
 		return (SENSOR_QTR_SIZE_HEIGHT + SENSOR_VER_QTR_BLK_LINES);
-	} else  {
+	else
 		return (SENSOR_FULL_SIZE_HEIGHT + SENSOR_VER_FULL_BLK_LINES);
-	}
-}
-
-static int32_t s5k4e5yx_set_fps(struct fps_cfg *fps)
-{
-	int32_t rc = 0;
-	s5k4e5yx_ctrl->fps_divider = fps->fps_div;
-	s5k4e5yx_ctrl->pict_fps_divider = fps->pict_fps_div;
-	s5k4e5yx_ctrl->fps = fps->f_mult;
-	return rc;
 }
 
 static int32_t s5k4e5yx_i2c_write_table(
@@ -513,12 +566,25 @@ static int32_t s5k4e5yx_write_exp_gain
 		s5k4e5yx_ctrl->my_reg_line_count = (uint16_t)line;
 		if (s5k4e5yx_ctrl->prev_res == QTR_SIZE) {
 			/* s5k4e5yx_ctrl->prev_res == QTR_SIZE */
-		fl_lines = SENSOR_QTR_SIZE_HEIGHT +
-			SENSOR_VER_QTR_BLK_LINES;
+			fl_lines = SENSOR_QTR_SIZE_HEIGHT +
+				SENSOR_VER_QTR_BLK_LINES;
 
-		ll_pck = SENSOR_QTR_SIZE_WIDTH +
-			SENSOR_HRZ_QTR_BLK_PIXELS;
-		} else {
+			ll_pck = SENSOR_QTR_SIZE_WIDTH +
+				SENSOR_HRZ_QTR_BLK_PIXELS;
+		} else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_SIZE) {
+				fl_lines = SENSOR_VIDEO_SIZE_HEIGHT_FAST+
+					SENSOR_VER_VIDEO_BLK_LINES_FAST;
+
+				ll_pck = SENSOR_VIDEO_SIZE_WIDTH_FAST +
+					SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST;
+		}
+		else if (s5k4e5yx_ctrl->prev_res == FAST_VIDEO_4X_SIZE) {
+				fl_lines = SENSOR_VIDEO_SIZE_HEIGHT_FAST_4X+
+					SENSOR_VER_VIDEO_BLK_LINES_FAST_4X;
+				ll_pck = SENSOR_VIDEO_SIZE_WIDTH_FAST_4X +
+					SENSOR_HRZ_VIDEO_BLK_PIXELS_FAST_4X;
+		}
+        else{
 			/* s5k4e5yx_ctrl->prev_res == FULL_SIZE */
 			fl_lines = SENSOR_FULL_SIZE_HEIGHT +
 				SENSOR_VER_FULL_BLK_LINES;
@@ -539,7 +605,7 @@ static int32_t s5k4e5yx_write_exp_gain
 		gain = max_legal_gain;
 
 	/* in Q10 */
-	line = (line * s5k4e5yx_ctrl->fps_divider);
+	line = (line * 0x400);/* s5k4e5yx_ctrl->fps_divider); */
 
 	CDBG("s5k4e5yx_ctrl->fps_divider = %d\n", s5k4e5yx_ctrl->fps_divider);
 	CDBG("fl_lines = %d\n", fl_lines);
@@ -565,7 +631,7 @@ static int32_t s5k4e5yx_write_exp_gain
 	if (rc < 0)
 		goto write_gain_done;
 
-	ll_pck = ll_pck * ll_ratio;
+	ll_pck = ll_pck * ll_ratio / 0x400 * s5k4e5yx_ctrl->fps_divider;
 	CDBG("ll_pck/0x400 = %d\n", ll_pck / 0x400);
 	ll_pck_msb = ((ll_pck / 0x400) & 0xFF00) >> 8;
 	ll_pck_lsb = (ll_pck / 0x400) & 0x00FF;
@@ -608,12 +674,386 @@ static int32_t s5k4e5yx_set_pict_exp_gain(uint16_t gain, uint32_t line)
 	return rc;
 } /* endof s5k4e5yx_set_pict_exp_gain*/
 
+static void s5k4e5yx_set_internal_regulator(uint8_t mode)
+{
+	int32_t rc = 0;
+	struct msm_camera_sensor_info *sinfo = s5k4e5yx_pdev->dev.platform_data;
+
+	if (sinfo->sensor_version != NULL) {
+		if (sinfo->sensor_version() == S5K4E5YX_EVT1)
+			rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_INT_RGL_SET, mode);
+		else
+			rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_INT_RGL_SET, S5K4E5YX_MODE_INT_RGL_OFF);
+	}
+}
+
+static void s5k4e5yx_ADLC_conrtol(int rt)
+{
+	/* ADLC */
+	const uint16_t ALDC_addr = 0x3070;
+	const uint8_t ALDC_enable = 0x5f;
+	const uint8_t ALDC_disable = 0x5b;
+
+	uint8_t ALDC_value = ALDC_enable;
+	struct msm_camera_sensor_info *sinfo = s5k4e5yx_pdev->dev.platform_data;
+
+	if (sinfo && sinfo->sensor_version) {
+
+		ALDC_value = (sinfo->sensor_version() == S5K4E5YX_EVT1 && rt != FULL_SIZE) ?
+				ALDC_disable  :
+				ALDC_enable;
+	}
+	s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, ALDC_addr, ALDC_value);
+}
+
+static void s5k4e5yx_stream_on(void)
+{
+	s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_STREAM);
+	s5k4e5yx_set_internal_regulator(S5K4E5YX_MODE_INT_RGL_OFF);
+}
+
+static void s5k4e5yx_stream_off(void)
+{
+	s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_SW_STANDBY);
+	s5k4e5yx_set_internal_regulator(S5K4E5YX_MODE_INT_RGL_ON);
+}
+
+#ifdef CONFIG_RAWCHIP
+void rawchip_parameter_setting(void)
+{
+	/* extern Yushan_New_Context_Config_t 	sYushanVideoContextConfig; */
+	extern Yushan_New_Context_Config_t 	sYushanFullContextConfig;
+	extern Yushan_New_Context_Config_t 	sYushanVideoFastContextConfig;
+	extern Yushan_New_Context_Config_t 	sYushanQTRContextConfig;
+	/* video context configuration */
+	#if 0
+	sYushanVideoContextConfig.uwActivePixels		=	SENSOR_VIDEO_SIZE_WIDTH;
+	sYushanVideoContextConfig.uwLineBlank			=	SENSOR_VER_VIDEO_BLK_LINES;
+	sYushanVideoContextConfig.uwActiveFrameLength	=	SENSOR_VIDEO_SIZE_HEIGHT;
+	#endif
+	/* full size context configuration */
+	sYushanFullContextConfig.uwActivePixels		=	SENSOR_FULL_SIZE_WIDTH;
+	sYushanFullContextConfig.uwLineBlank			=	SENSOR_VER_FULL_BLK_LINES;
+	sYushanFullContextConfig.uwActiveFrameLength	=	SENSOR_FULL_SIZE_HEIGHT;
+	/* sYushanFullContextConfig.bSelectStillVfMode	=	YUSHAN_FRAME_FORMAT_VF_MODE;*/
+
+	/* QTR size context configuration */
+	sYushanQTRContextConfig.uwActivePixels	 =	 SENSOR_QTR_SIZE_WIDTH;
+	sYushanQTRContextConfig.uwLineBlank			 =	 SENSOR_VER_QTR_BLK_LINES;
+	sYushanQTRContextConfig.uwActiveFrameLength	 =	 SENSOR_QTR_SIZE_HEIGHT;
+
+	/* FAST_VIDEO size context configuration */
+	sYushanVideoFastContextConfig.uwActivePixels		 =	 SENSOR_VIDEO_SIZE_WIDTH_FAST;
+	sYushanVideoFastContextConfig.uwLineBlank			 =	 SENSOR_VER_VIDEO_BLK_LINES_FAST;
+	sYushanVideoFastContextConfig.uwActiveFrameLength	 =	 SENSOR_VIDEO_SIZE_HEIGHT_FAST;
+
+
+}
+
+
+
+/* chenc debug */
+void frame_counter(void)
+{
+	uint16_t fcnt_FPGA_out = 0, tmp = 0;
+	uint16_t fcnt_FPGA_in = 0, tmp1 = 0;
+	/* uint16_t fcnt_3H2=0; */
+	uint8_t i;
+	/* uint16_t j; */
+
+		for (i = 0; i < 100; i++) {
+#if 0
+			s5k4e5yx_i2c_read_b(s5k4e5yx_client->addr, 0x0005, &fcnt_3H2);
+			pr_info("[CAM] 4e5's out counting=%d (%d)\n", fcnt_3H2, i);
+			mdelay(10);
+#endif
+			/*if(i%20 == 0) {
+					rawchip_spi_read_2B2B(0,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",0, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(1,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",1, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(2,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",2, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(3,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",3, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(4,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",4, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(5,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",5, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(6,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",6, fcnt_FPGA_out);
+						mdelay(1);
+					}
+					rawchip_spi_read_2B2B(7,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",7, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				for(j=4;j<=24;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x800;j<=0x808;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0xc00;j<=0xd34;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x1000;j<=0x1038;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x1a00;j<=0x1a14;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x\n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x1c00;j<=0x1c08;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x2000;j<=0x2068;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x2400;j<=0x2440;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x2800;j<=0x281c;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x2c00;j<=0x2c54;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x3000;j<=0x308c;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x3400;j<=0x341c;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x3800;j<=0x3810;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x4000;j<=0x400c;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x4400;j<=0x4410;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x4800;j<=0x4804;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x4900;j<=0x4904;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x4a00;j<=0x4a08;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x\n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x4c00;j<=0x4d08;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x5000;j<=0x5050;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x\n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x5800;j<=0x58cc;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+				for(j=0x5c00;j<=0x5c30;j+=4){
+					rawchip_spi_read_2B2B(j,&fcnt_FPGA_out);
+					{
+						pr_info("[CAM] ASIC's 0x%x=0x%x \n",j, fcnt_FPGA_out);
+						mdelay(1);
+					}
+				}
+			}*/
+			rawchip_spi_read_2B2B(0x242C, &fcnt_FPGA_in);
+			/* if (fcnt_FPGA_in != tmp1) */
+			{
+				tmp1 = fcnt_FPGA_in;
+				//pr_info("[CAM] ASIC's in counting=%d (%d)\n", fcnt_FPGA_in, i);
+			}
+			mdelay(10);
+
+			/* FPGA's out counting */
+			rawchip_spi_read_2B2B(0x4C30, &fcnt_FPGA_out);
+			/* if (fcnt_FPGA_out != tmp) */
+			{
+				tmp = fcnt_FPGA_out;
+				//pr_info("[CAM] ASIC's out counting=%d (%d)\n", fcnt_FPGA_out, i);
+			}
+			mdelay(10);
+			pr_info("[CAM] ASIC's in/out =%d/%d %d (%d)\n", fcnt_FPGA_in,fcnt_FPGA_out, (int)fcnt_FPGA_in-(int)fcnt_FPGA_out,i);
+			
+
+			rawchip_spi_read_2B2B(0xC00, &fcnt_FPGA_out);
+			{
+				//pr_info("[CAM] ASIC's 0xC00=0x%x \n", fcnt_FPGA_out);
+			mdelay(1);
+			}
+			rawchip_spi_read_2B2B(0xC60, &fcnt_FPGA_out);
+			{
+				//pr_info("[CAM] ASIC's 0xC60 = 0x%x \n", fcnt_FPGA_out);
+			mdelay(1);
+			}
+		}
+#if 0
+		rawchip_spi_read_2B2B(0x4804, &fcnt_FPGA);
+		pr_info("[CAM] ASIC's P2W_FIFO_WR_STATUS =%d \n", fcnt_FPGA);
+		Yushan_ISR();
+#endif
+}
+#endif
+
+static int32_t s5k4e5yx_set_fps(struct fps_cfg *fps)
+{
+	int32_t rc = 0;
+	uint32_t pre_fps = s5k4e5yx_ctrl->fps_divider;
+	s5k4e5yx_ctrl->fps_divider = fps->fps_div;
+	s5k4e5yx_ctrl->pict_fps_divider = fps->pict_fps_div;
+	s5k4e5yx_ctrl->fps = fps->f_mult;
+
+	if (s5k4e5yx_ctrl->sensormode == SENSOR_PREVIEW_MODE &&
+		(s5k4e5yx_ctrl->my_reg_gain != 0 || s5k4e5yx_ctrl->my_reg_line_count != 0)) {
+		rc =
+			s5k4e5yx_write_exp_gain(s5k4e5yx_ctrl->my_reg_gain,
+				s5k4e5yx_ctrl->my_reg_line_count * pre_fps / s5k4e5yx_ctrl->fps_divider);
+	}
+
+	return rc;
+}
+
+
+
+int frame_thread(void* dummy)
+{
+	unsigned short i=0;
+	while (1)
+	{
+		s5k4e5yx_i2c_read_b(s5k4e5yx_client->addr,
+					0x5,&i);
+		printk("frmae=%d\n",i);
+		msleep(300);
+	}
+}
+
+void run_thread(void)
+{
+	static int i=1;
+	if (i)
+	{
+		kernel_thread(frame_thread, 0, 0);
+		i=0;
+	}
+}
 static int32_t s5k4e5yx_setting(int rt)
 {
 	int32_t rc = 0;
 	struct msm_camera_csi_params s5k4e5yx_csi_params;
 	struct msm_camera_sensor_info *sinfo = s5k4e5yx_pdev->dev.platform_data;
 
+#ifdef CONFIG_RAWCHIP
+	extern int Yushan_init;
+	extern Yushan_New_Context_Config_t sYushanFullContextConfig;
+	extern Yushan_New_Context_Config_t sYushanVideoFastContextConfig;
+	extern Yushan_New_Context_Config_t sYushanQTRContextConfig;
+#endif
 
 	if (sinfo->csi_if) {
 		if (s5k4e5yx_ctrl->reg_update == REG_INIT) {
@@ -623,65 +1063,31 @@ static int32_t s5k4e5yx_setting(int rt)
 			s5k4e5yx_csi_params.lane_assign = 0xe4;
 			s5k4e5yx_csi_params.dpcm_scheme = 0;
 			s5k4e5yx_csi_params.settle_cnt = 20;
+			s5k4e5yx_csi_params.hs_impedence = 0x0F;
+			s5k4e5yx_csi_params.mipi_driving_strength = 0;
 			rc = msm_camio_csi_config(&s5k4e5yx_csi_params);
 
 			s5k4e5yx_ctrl->reg_update = REG_PERIODIC;
 			pr_info("[CAM]after set csi config\n");
+#ifdef CONFIG_RAWCHIP
+			rawchip_parameter_setting();
+			/* Yushan_sensor_open_init(); */
+#endif
 		}
 	}
 
 	switch (rt) {
 	case QTR_SIZE:
-			pr_info("[CAM]s5k4e5yx_setting(QTR_SIZE)\n");
 
-		rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr,
-			S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_SW_STANDBY);
-		if (rc < 0)
-			return rc;
+		s5k4e5yx_stream_off();
 
+		pr_info("[CAM]s5k4e5yx_setting(QTR_SIZE)\n");
 		rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.qtr_mipi, s5k4e5yx_regs.qtr_mipi_size);
-		if (rc < 0)
+
+		if (rc < 0) {
+			pr_info("[CAM]s5k4e5yx_setting(QTR_SIZE) fail =%d\n",rc);
 			return rc;
-
-			/* Apply sensor mirror/flip */
-			if (sinfo->mirror_mode) {
-				pr_info("s5k4e5yx_setting() , Apply sensor mirror/flip\n");
-				s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_READ_MODE, S5K4E5YX_READ_MIRROR_FLIP);
-			}
-
-		msleep(200);
-
-		rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr,
-			S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_STREAM);
-		if (rc < 0)
-			return rc;
-
-		s5k4e5yx_ctrl->curr_res = QTR_SIZE;
-
-#if 0
-		/* test pattern */
-		rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_COLOR_BAR_PATTERN_SEL_REG, 0x02);
-		if (rc < 0)
-			return rc;
-#endif
-		break;
-
-	case FULL_SIZE:
-			pr_info("[CAM]s5k4e5yx_setting(FULL_SIZE)\n");
-
-			rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr,
-				S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_SW_STANDBY);
-		if (rc < 0)
-			return rc;
-		if (sinfo->zero_shutter_mode && sinfo->csi_if) {
-			rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.full_mipi_zsl, s5k4e5yx_regs.full_mipi_size_zsl);
-			pr_info("[CAM]%s: full preview size for improve shutter lag\n", __func__);
-		} else {
-			rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.full_mipi, s5k4e5yx_regs.full_mipi_size);
 		}
-
-		if (rc < 0)
-			return rc;
 
 		/* Apply sensor mirror/flip */
 		if (sinfo->mirror_mode) {
@@ -689,13 +1095,107 @@ static int32_t s5k4e5yx_setting(int rt)
 			s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_READ_MODE, S5K4E5YX_READ_MIRROR_FLIP);
 		}
 
+#ifdef CONFIG_RAWCHIP
+		if (Yushan_init == 0) {
+			Yushan_sensor_open_init();
+			Yushan_init = 1;
+		}
 		msleep(100);
 
-		rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr,
-			S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_STREAM);
-		if (rc < 0)
+		Yushan_ContextUpdate_Wrapper(&sYushanQTRContextConfig);
+#endif
+
+		s5k4e5yx_ADLC_conrtol(rt);
+		s5k4e5yx_stream_on();
+		s5k4e5yx_ctrl->curr_res = QTR_SIZE;
+
+		break;
+
+	case FAST_VIDEO_SIZE:
+	case FAST_VIDEO_4X_SIZE:
+
+		s5k4e5yx_stream_off();
+
+		if (rt == FAST_VIDEO_SIZE) {
+			pr_info("[CAM]s5k4e5yx_setting(FAST_VIDEO_SIZE)\n");
+			rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.fast_video_mipi, s5k4e5yx_regs.fast_video_mipi_size);
+		}
+		else if (rt== FAST_VIDEO_4X_SIZE )
+		{
+			pr_info("[CAM]s5k4e5yx_setting(FAST_VIDEO_4X_SIZE)\n");
+			rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.fast_video_4x_mipi, s5k4e5yx_regs.fast_video_4x_mipi_size);
+		}
+
+		if (rc < 0) {
+			pr_info("[CAM]s5k4e5yx_setting(FAST_VIDEO_SIZE/FAST_VIDEO_4X_SIZE) fail =%d\n",rc);
 			return rc;
 
+		}
+		/* Apply sensor mirror/flip */
+		if (sinfo->mirror_mode) {
+			pr_info("s5k4e5yx_setting() , Apply sensor mirror/flip\n");
+			s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_READ_MODE, S5K4E5YX_READ_MIRROR_FLIP);
+		}
+
+#ifdef CONFIG_RAWCHIP
+		if (Yushan_init == 0) {
+			Yushan_sensor_open_init();
+			Yushan_init = 1;
+		}
+		msleep(100);
+
+        Yushan_ContextUpdate_Wrapper(&sYushanVideoFastContextConfig);
+#endif
+		s5k4e5yx_ADLC_conrtol(rt);
+
+		s5k4e5yx_stream_on();
+		if (rt == FAST_VIDEO_SIZE)
+			s5k4e5yx_ctrl->curr_res = FAST_VIDEO_SIZE;
+		else if (rt == FAST_VIDEO_4X_SIZE) {
+			s5k4e5yx_ctrl->curr_res = FAST_VIDEO_4X_SIZE;
+		}
+
+#if 0
+		/* test pattern */
+		rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_COLOR_BAR_PATTERN_SEL_REG, 0x02);
+		if (rc < 0)
+			return rc;
+#endif
+		//frame_counter();
+
+		break;
+
+	case FULL_SIZE:
+
+		pr_info("[CAM]s5k4e5yx_setting(FULL_SIZE)\n");
+
+		s5k4e5yx_stream_off();
+
+		rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.full_mipi, s5k4e5yx_regs.full_mipi_size);
+
+		if (rc < 0)
+		{
+			pr_info("[CAM]s5k4e5yx_setting(FULL_SIZE) fail =%d\n",rc);
+			return rc;
+		}
+		/* Apply sensor mirror/flip */
+		if (sinfo->mirror_mode) {
+			pr_info("s5k4e5yx_setting() , Apply sensor mirror/flip\n");
+			s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_READ_MODE, S5K4E5YX_READ_MIRROR_FLIP);
+		}
+
+#ifdef CONFIG_RAWCHIP
+		if (Yushan_init == 0) {
+			Yushan_sensor_open_init();
+			Yushan_init = 1;
+		}
+		msleep(100);
+
+			Yushan_ContextUpdate_Wrapper(&sYushanFullContextConfig);
+#endif
+		s5k4e5yx_ADLC_conrtol(rt);
+
+		s5k4e5yx_stream_on();
 		s5k4e5yx_ctrl->curr_res = FULL_SIZE;
 
 #if 0
@@ -704,6 +1204,7 @@ static int32_t s5k4e5yx_setting(int rt)
 		if (rc < 0)
 			return rc;
 #endif
+              //frame_counter();
 		break;
 
 	default:
@@ -719,10 +1220,11 @@ static int32_t s5k4e5yx_video_config(int mode)
 	s5k4e5yx_ctrl->sensormode = mode;
 
 	pr_info("[CAM]s5k4e5yx_setting s5k4e5yx_video_config mode %d\n", mode);
+	//pr_info("[CAM]curr_res/prev_res =%d/%d\n", s5k4e5yx_ctrl->curr_res,s5k4e5yx_ctrl->prev_res);
 
 	if (s5k4e5yx_ctrl->curr_res != s5k4e5yx_ctrl->prev_res) {
 		pr_info("[CAM]s5k4e5yx_setting s5k4e5yx_video_config curr_res %d\n", s5k4e5yx_ctrl->prev_res);
-	rc = s5k4e5yx_setting(s5k4e5yx_ctrl->prev_res);
+		rc = s5k4e5yx_setting(s5k4e5yx_ctrl->prev_res);
 		if (rc < 0)
 			return rc;
 	} else {
@@ -731,9 +1233,11 @@ static int32_t s5k4e5yx_video_config(int mode)
 		s5k4e5yx_ctrl->sensormode = mode;
 
 	preview_frame_count = 0;
-	rc =
-		s5k4e5yx_write_exp_gain(s5k4e5yx_ctrl->my_reg_gain,
+	if (s5k4e5yx_ctrl->sensormode == SENSOR_PREVIEW_MODE &&
+		(s5k4e5yx_ctrl->my_reg_gain != 0 || s5k4e5yx_ctrl->my_reg_line_count != 0)) {
+		rc = s5k4e5yx_write_exp_gain(s5k4e5yx_ctrl->my_reg_gain,
 			s5k4e5yx_ctrl->my_reg_line_count);
+	}
 
 	return rc;
 
@@ -760,6 +1264,7 @@ static int32_t s5k4e5yx_snapshot_config(int mode)
 static int32_t s5k4e5yx_raw_snapshot_config(int mode)
 {
 	int32_t rc = 0;
+
 	s5k4e5yx_ctrl->sensormode = mode;
 	if (s5k4e5yx_ctrl->curr_res != s5k4e5yx_ctrl->pict_res) {
 		rc = s5k4e5yx_setting(s5k4e5yx_ctrl->pict_res);
@@ -782,29 +1287,29 @@ static int32_t s5k4e5yx_set_sensor_mode(int mode,
 	struct msm_camera_sensor_info *sinfo = s5k4e5yx_pdev->dev.platform_data;
 
 	switch (mode) {
-		case SENSOR_PREVIEW_MODE:
-			s5k4e5yx_ctrl->prev_res = res; /* VIDEO_SIZE, FULL_SIZE, QTR_SIZE */
-			rc = s5k4e5yx_video_config(mode);
-			break;
+	case SENSOR_PREVIEW_MODE:
+		s5k4e5yx_ctrl->prev_res = res; /* VIDEO_SIZE, FAST_VIDEO_SIZE, FULL_SIZE, QTR_SIZE */
+		rc = s5k4e5yx_video_config(mode);
+		break;
 
-		case SENSOR_SNAPSHOT_MODE:
-			pr_info("[CAM]KPI PA: start sensor snapshot config\n");
-			/* Check V-sync frame timer Start */
-			sinfo->kpi_sensor_start = ktime_to_ns(ktime_get());
-			s5k4e5yx_ctrl->pict_res = res;
-			rc = s5k4e5yx_snapshot_config(mode);
-			break;
+	case SENSOR_SNAPSHOT_MODE:
+		pr_info("[CAM]KPI PA: start sensor snapshot config\n");
+		/* Check V-sync frame timer Start */
+		sinfo->kpi_sensor_start = ktime_to_ns(ktime_get());
+		s5k4e5yx_ctrl->pict_res = res;
+		rc = s5k4e5yx_snapshot_config(mode);
+		break;
 
-		case SENSOR_RAW_SNAPSHOT_MODE:
-			pr_info("[CAM]KPI PA: start sensor raw snapshot config\n");
-			sinfo->kpi_sensor_start = ktime_to_ns(ktime_get());
-			s5k4e5yx_ctrl->pict_res = res;
-			rc = s5k4e5yx_raw_snapshot_config(mode);
-			break;
+	case SENSOR_RAW_SNAPSHOT_MODE:
+		pr_info("[CAM]KPI PA: start sensor raw snapshot config\n");
+		sinfo->kpi_sensor_start = ktime_to_ns(ktime_get());
+		s5k4e5yx_ctrl->pict_res = res;
+		rc = s5k4e5yx_raw_snapshot_config(mode);
+		break;
 
-		default:
-			rc = -EINVAL;
-			break;
+	default:
+		rc = -EINVAL;
+		break;
 	}
 
 	return rc;
@@ -845,11 +1350,11 @@ static int s5k4e5yx_common_deinit(const struct msm_camera_sensor_info *data)
 	pr_info("[CAM]%s\n", __func__);
 
 	rc = gpio_request(data->sensor_pwd, "s5k4e5yx");
-	if (!rc) {
+	if (!rc)
 		gpio_direction_output(data->sensor_pwd, 0);
-	} else {
+	else
 		pr_err("[CAM]GPIO (%d) request failed\n", data->sensor_pwd);
-	}
+
 	gpio_free(data->sensor_pwd);
 
 	if (data->vcm_pwd) {
@@ -881,13 +1386,13 @@ static int s5k4e5yx_common_init(const struct msm_camera_sensor_info *data)
 
 	s5k4e5yx_vreg_enable(s5k4e5yx_pdev);
 
-	data->pdata->camera_gpio_on();
+	/* data->pdata->camera_gpio_on(); */
 
 	/* switch MCLK to Main cam */
 	if (data->camera_clk_switch != NULL)
 		data->camera_clk_switch();
 
-	if (data->sensor_pwd) {
+	if (data->sensor_pwd >= 0) {
 		rc = gpio_request(data->sensor_pwd, "s5k4e5yx");
 		if (!rc) {
 			gpio_direction_output(data->sensor_pwd, 1);
@@ -896,7 +1401,8 @@ static int s5k4e5yx_common_init(const struct msm_camera_sensor_info *data)
 			goto init_fail;
 		}
 		gpio_free(data->sensor_pwd);
-	}
+	} else
+		pr_info("[CAM] Invalid RST pin\n");
 
 	if (data->vcm_pwd) {
 		rc = gpio_request(data->vcm_pwd, "s5k4e5yx");
@@ -909,9 +1415,11 @@ static int s5k4e5yx_common_init(const struct msm_camera_sensor_info *data)
 		gpio_free(data->vcm_pwd);
 	}
 
-	//msleep(1);
+	/*optical suggest switch clock then turn on gpio*/
+	data->pdata->camera_gpio_on();
+	/* msleep(1); */
 
-	//msm_camio_probe_on(s5k4e5yx_pdev);
+	/* msm_camio_probe_on(s5k4e5yx_pdev); */
 
 	msleep(1);
 
@@ -944,15 +1452,17 @@ init_done:
 static void s5k4e5yx_setup_af_tbl(void)
 {
   uint32_t i;
+#ifndef CONFIG_RAWCHIP
   uint16_t s5k4e5yx_nl_region_boundary1 = 3;
   uint16_t s5k4e5yx_nl_region_boundary2 = 5;
   uint16_t s5k4e5yx_nl_region_code_per_step1 = 40;
   uint16_t s5k4e5yx_nl_region_code_per_step2 = 20;
   uint16_t s5k4e5yx_l_region_code_per_step = 16;
-
+#endif
   s5k4e5yx_pos_tbl[0] = 0;
 
   for (i = 1; i <= S5K4E5YX_TOTAL_STEPS_NEAR_TO_FAR; i++) {
+#ifndef CONFIG_RAWCHIP
     if (i <= s5k4e5yx_nl_region_boundary1)
       s5k4e5yx_pos_tbl[i] = s5k4e5yx_pos_tbl[i-1] +
       s5k4e5yx_nl_region_code_per_step1;
@@ -962,10 +1472,13 @@ static void s5k4e5yx_setup_af_tbl(void)
     else
       s5k4e5yx_pos_tbl[i] = s5k4e5yx_pos_tbl[i-1] +
       s5k4e5yx_l_region_code_per_step;
+#else
+	s5k4e5yx_pos_tbl[i] =  s5k4e5yx_pos_tbl[i-1] + 4;
+#endif
   }
 }
 
-static int32_t
+int32_t
 s5k4e5yx_go_to_position(uint32_t lens_pos, uint8_t mask)
 {
 	int32_t rc = 0;
@@ -1078,7 +1591,7 @@ static int s5k4e5yx_sensor_open_init(struct msm_camera_sensor_info *data)
 {
 	int32_t rc = 0;
 
-	pr_info("[CAM]Calling s5k4e5yx_sensor_open_init\n");
+	pr_info("[CAM] Calling s5k4e5yx_sensor_open_init\n");
 
 	down(&s5k4e5yx_sem);
 
@@ -1087,7 +1600,7 @@ static int s5k4e5yx_sensor_open_init(struct msm_camera_sensor_info *data)
 		goto init_fail;
 	}
 
-	s5k4e5yx_ctrl = (struct s5k4e5yx_ctrl_t *)kzalloc(sizeof(struct s5k4e5yx_ctrl_t), GFP_KERNEL);
+	s5k4e5yx_ctrl = kzalloc(sizeof(struct s5k4e5yx_ctrl_t), GFP_KERNEL);
 
 	if (!s5k4e5yx_ctrl) {
 		rc = -ENOMEM;
@@ -1103,20 +1616,23 @@ static int s5k4e5yx_sensor_open_init(struct msm_camera_sensor_info *data)
 	s5k4e5yx_ctrl->curr_res = INVALID_SIZE;
 	s5k4e5yx_ctrl->reg_update = REG_INIT;
 	s5k4e5yx_ctrl->sensordata = data;
+	s5k4e5yx_ctrl->my_reg_gain = 0;
+	s5k4e5yx_ctrl->my_reg_line_count = 0;
 
 	rc = s5k4e5yx_common_init(data);
 
 	if (rc < 0)
 		goto init_fail;
 
-	rc = s5k4e5yx_i2c_write_table( s5k4e5yx_regs.common_mipi, s5k4e5yx_regs.common_mipi_size);
+	rc = s5k4e5yx_i2c_write_table(s5k4e5yx_regs.common_mipi, s5k4e5yx_regs.common_mipi_size);
 
 	if (rc < 0)
 		goto init_fail;
-
-	//rc = s5k4e5yx_i2c_write_b( s5k4e5yx_client->addr, S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_STREAM);
-	//if (rc < 0)
-	//	goto init_fail;
+	/* setup internal regulator */
+	s5k4e5yx_set_internal_regulator(S5K4E5YX_MODE_INT_RGL_ON);
+	/* rc = s5k4e5yx_i2c_write_b(s5k4e5yx_client->addr, S5K4E5YX_REG_MODE_SELECT, S5K4E5YX_MODE_SELECT_STREAM);
+	if (rc < 0)
+		goto init_fail; */
 
 	/* set up lens position table */
 	s5k4e5yx_setup_af_tbl();
@@ -1157,7 +1673,7 @@ static int s5k4e5yx_i2c_probe(struct i2c_client *client,
 		goto probe_failure;
 	}
 
-	s5k4e5yx_sensorw = (struct  s5k4e5yx_work *)kzalloc(sizeof(struct s5k4e5yx_work), GFP_KERNEL);
+	s5k4e5yx_sensorw = 	kzalloc(sizeof(struct s5k4e5yx_work), GFP_KERNEL);
 	if (!s5k4e5yx_sensorw) {
 		pr_err("[CAM]kzalloc failed.\n");
 		rc = -ENOMEM;
@@ -1201,7 +1717,7 @@ static const char *S5K4E5YXVendor = "samsung";
 static const char *S5K4E5YXNAME = "S5K4E5YX";
 static const char *S5K4E5YXSize = "5M";
 
-static ssize_t sensor_vendor_show( struct device *dev,
+static ssize_t sensor_vendor_show(struct device *dev,
   struct device_attribute *attr, char *buf)
 {
   ssize_t ret = 0;
@@ -1212,7 +1728,7 @@ static ssize_t sensor_vendor_show( struct device *dev,
   return ret;
 }
 
-static ssize_t sensor_read_node( struct device *dev,
+static ssize_t sensor_read_node(struct device *dev,
   struct device_attribute *attr, char *buf)
 {
   ssize_t length;
@@ -1257,7 +1773,7 @@ error:
   return ret;
 }
 
-static int32_t
+int32_t
 s5k4e5yx_move_focus(int direction, int32_t num_steps)
 {
   uint16_t s5k4e5yx_sw_damping_time_wait = 1;
@@ -1307,6 +1823,12 @@ s5k4e5yx_move_focus(int direction, int32_t num_steps)
       return rc;
 
   dest_lens_pos = s5k4e5yx_pos_tbl[dest_step_pos];
+
+/* For Af measureing for optical*/
+#if 0
+  dest_lens_pos = AF_START_POSITION+(dest_step_pos-1)*AF_STEP_SIZE;
+  pr_err("[CAM] [%d] curr_lens_pos = %d!!!\n",dest_step_pos, dest_lens_pos);
+#endif
   target_dist = step_direction * (dest_lens_pos - curr_lens_pos);
 
     s5k4e5yx_max_fps_val = S5K4E5YX_MAX_FPS;
@@ -1425,6 +1947,14 @@ uint8_t s5k4e5yx_preview_skip_frame(void)
 	return 0;
 }
 
+static int s5k4e5yx_deinit(void)
+{
+	pr_info ("[CAM] s5k4e5yx_deinit\n");
+
+	return s5k4e5yx_common_deinit (s5k4e5yx_pdev->dev.platform_data);
+}
+
+
 int s5k4e5yx_sensor_config(void __user *argp)
 {
   struct sensor_cfg_data cdata;
@@ -1508,14 +2038,14 @@ int s5k4e5yx_sensor_config(void __user *argp)
 
   case CFG_SET_EXP_GAIN:
     rc = s5k4e5yx_write_exp_gain(
-        cdata.cfg.exp_gain.gain,
-        cdata.cfg.exp_gain.line);
+		cdata.cfg.exp_gain.gain,
+		cdata.cfg.exp_gain.line);
     break;
 
   case CFG_SET_PICT_EXP_GAIN:
     rc = s5k4e5yx_set_pict_exp_gain(
-        cdata.cfg.exp_gain.gain,
-        cdata.cfg.exp_gain.line);
+		cdata.cfg.exp_gain.gain,
+		cdata.cfg.exp_gain.line);
     break;
 
   case CFG_SET_MODE:
@@ -1533,7 +2063,16 @@ int s5k4e5yx_sensor_config(void __user *argp)
       cdata.cfg.focus.dir,
       cdata.cfg.focus.steps);
     break;
-
+#ifdef CONFIG_RAWCHIP
+  case CFG_GET_CUR_STEPS:
+	cdata.cfg.focus.curr_steps = s5k4e5yx_ctrl->curr_step_pos;
+	CDBG("[CAM] CFG_GET_CUR_STEPS s5k4e5yx_ctrl->curr_step_pos = %d", s5k4e5yx_ctrl->curr_step_pos);
+    if (copy_to_user((void *)argp,
+      &cdata,
+      sizeof(struct sensor_cfg_data)))
+      rc = -EFAULT;
+    break;
+#endif
   case CFG_SET_DEFAULT_FOCUS:
     rc =
       s5k4e5yx_set_default_focus();
@@ -1546,7 +2085,10 @@ int s5k4e5yx_sensor_config(void __user *argp)
 			rc = -EFAULT;
 		}
 		break;
-
+  case CFG_DEINIT:
+	rc = s5k4e5yx_deinit ();
+	break;
+  
   default:
     rc = -EFAULT;
     break;
@@ -1613,7 +2155,7 @@ static int s5k4e5yx_sensor_probe(struct msm_camera_sensor_info *info,
 probe_fail:
 	pr_err("[CAM]s5k4e5yx_sensor_probe failed\n");
 probe_done:
-	if(info) s5k4e5yx_common_deinit(info);
+	s5k4e5yx_common_deinit(info);
 	return rc;
 }
 

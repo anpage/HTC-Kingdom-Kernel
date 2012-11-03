@@ -24,6 +24,7 @@ obj-$(CONFIG_B43LEGACY)		+= b43legacy/
 obj-$(CONFIG_ZD1211RW)		+= zd1211rw/
 obj-$(CONFIG_RTL8180)		+= rtl818x/
 obj-$(CONFIG_RTL8187)		+= rtl818x/
+obj-$(CONFIG_RTLWIFI)		+= rtlwifi/
 
 # 16-bit wireless PCMCIA client drivers
 obj-$(CONFIG_PCMCIA_RAYCS)	+= ray_cs.o
@@ -40,7 +41,8 @@ obj-$(CONFIG_ADM8211)	+= adm8211.o
 
 obj-$(CONFIG_MWL8K)	+= mwl8k.o
 
-obj-$(CONFIG_IWLWIFI)	+= iwlwifi/
+obj-$(CONFIG_IWLAGN)	+= iwlwifi/
+obj-$(CONFIG_IWLWIFI_LEGACY)	+= iwlegacy/
 obj-$(CONFIG_RT2X00)	+= rt2x00/
 
 obj-$(CONFIG_P54_COMMON)	+= p54/
@@ -49,16 +51,23 @@ obj-$(CONFIG_ATH_COMMON)	+= ath/
 
 obj-$(CONFIG_MAC80211_HWSIM)	+= mac80211_hwsim.o
 
-obj-$(CONFIG_WL12XX)	+= wl12xx/
+obj-$(CONFIG_WL1251)	+= wl1251/
+# HTC_WIFI_START
+obj-$(CONFIG_WL12XX_PLATFORM_DATA)    += wl12xx/
+#obj-$(CONFIG_WL12XX_PLATFORM_DATA)     += wl12xx/wl12xx_platform_data.o
+# HTC_WIFI_END
 
 obj-$(CONFIG_IWM)	+= iwmc3200wifi/
 
-obj-$(CONFIG_BCM4329)	+= bcm4329_204/
+obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
-obj-$(CONFIG_BCM4329_CES)	+= bcm4329_CES/
+obj-$(CONFIG_BCM4329)	+= bcm4329/
+obj-$(CONFIG_BCMDHD)	+= bcmdhd/
 
-obj-$(CONFIG_BCM4329_248)   += bcm4329_248/
+obj-$(CONFIG_LIBRA_SDIOIF)	+= libra/
+obj-$(CONFIG_WCNSS_CORE)	+= wcnss/
 
-obj-$(CONFIG_BCM4330)   += bcm4330/
+obj-$(CONFIG_QUALCOMM_WLAN)        += qualcomm_wlan/prima/CORE/HDD/src/
 
+obj-$(CONFIG_BCM4329_248)	+= bcm4329_248/
 obj-$(CONFIG_BCM4330B2)   += bcm4330b2/

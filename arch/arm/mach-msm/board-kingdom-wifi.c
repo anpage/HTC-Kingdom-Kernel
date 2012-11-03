@@ -83,7 +83,7 @@ static struct resource kingdom_wifi_resources[] = {
 #ifdef HW_OOB
 		.flags          = IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL | IORESOURCE_IRQ_SHAREABLE,
 #else
-		.flags          = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWEDGE,
+		.flags          = IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE,
 #endif
 	},
 };

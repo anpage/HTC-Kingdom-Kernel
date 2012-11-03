@@ -1,58 +1,13 @@
-/* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
- * Copyright (c) 2009, HTC Corporation. All rights reserved.
+/* Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
- *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- * 
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- * 
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- * 
- * END
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 /*
@@ -68,13 +23,9 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/semaphore.h>
-#include <linux/delay.h>
 
 #include <mach/dal.h>
 #include <mach/msm_smd.h>
-
-#include "smd_private.h"
-#include "smd_debug.h"
 
 #define DALRPC_PROTOCOL_VERSION 0x11
 #define DALRPC_SUCCESS 0
@@ -91,9 +42,6 @@
 #define DALRPC_MSGID_DETACH_REPLY 0x82
 #define DALRPC_MSGID_ASYNCH 0xC0
 #define ROUND_BUFLEN(x) (((x + 3) & ~0x3))
-
-#define MAX_RETRY_COUNT 5
-#define RETRY_DELAY 10
 
 struct dalrpc_msg_hdr {
 	uint32_t len:16;
@@ -430,7 +378,7 @@ static void dalrpc_work(struct work_struct *work)
 	mutex_lock(&pc_lists_lock);
 	if (port_exists(p))
 		while (dalrpc_read_msg(p))
-		;
+			;
 	mutex_unlock(&pc_lists_lock);
 }
 
@@ -459,7 +407,7 @@ static struct dalrpc_port *dalrpc_port_open(char *port, int cpu)
 	if (!p)
 		return NULL;
 
-	strncpy(p->port, port, sizeof(p->port) - 1);
+	strlcpy(p->port, port, sizeof(p->port));
 	p->refcount = 1;
 
 	snprintf(wq_name, sizeof(wq_name), "dalrpc_rcv_%s", port);
@@ -480,12 +428,8 @@ static struct dalrpc_port *dalrpc_port_open(char *port, int cpu)
 	p->msg_owner = NULL;
 	p->msg_bytes_read = 0;
 
-#if 1 //HK test
-	if (smd_open(port, &p->ch, p, dalrpc_smd_cb)) {
-#else
 	if (smd_named_open_on_edge(port, cpu, &p->ch, p,
 				   dalrpc_smd_cb)) {
-#endif
 		printk(KERN_ERR "dalrpc_port_init() failed to open port\n");
 		goto no_smd;
 	}
@@ -509,29 +453,16 @@ static void dalrpc_sendwait(struct daldevice_handle *h)
 
 	mutex_lock(&h->port->write_lock);
 	do {
-		if ((h->port->ch->recv->state != SMD_SS_OPENED) ||
-		   (h->port->ch->send->state != SMD_SS_OPENED)) {
-			printk(KERN_ERR "%s: smd channel %s not ready,"
-			       " wait 100ms.\n", __func__, h->port->ch->name);
-			mdelay(100);
-			continue;
-		}
 		written = smd_write(h->port->ch, buf + (h->msg.hdr.len - len),
 				 len);
 		if (written < 0)
 			break;
 		len -= written;
 	} while (len);
-
-	/* Original codes put wait_for_completion outside of mutex
-	 * that may cause the latter session overwrites data from
-	 * previous session before aDSP really gets it. Thus, move
-	 * wait_for_completion inside the mutex to prevent data
-	 * corruption. */
-	wait_for_completion(&h->read_completion);
-
 	mutex_unlock(&h->port->write_lock);
 
+	if (!h->msg.hdr.async)
+		wait_for_completion(&h->read_completion);
 }
 
 int daldevice_attach(uint32_t device_id, char *port, int cpu,
@@ -606,8 +537,8 @@ int daldevice_attach(uint32_t device_id, char *port, int cpu,
 		} else if (strnlen((char *)&h->msg.param[1],
 				   DALRPC_MAX_PORTNAME_LEN)) {
 			/* another port was recommended in the response. */
-			strncpy(dyn_port, (char *)&h->msg.param[1],
-				DALRPC_MAX_PORTNAME_LEN);
+			strlcpy(dyn_port, (char *)&h->msg.param[1],
+				sizeof(dyn_port));
 			dyn_port[DALRPC_MAX_PORTNAME_LEN] = 0;
 			port = dyn_port;
 		} else if (port == dyn_port) {
@@ -628,11 +559,12 @@ int daldevice_attach(uint32_t device_id, char *port, int cpu,
 }
 EXPORT_SYMBOL(daldevice_attach);
 
-static void dalrpc_ddi_prologue(uint32_t ddi_idx, struct daldevice_handle *h)
+static void dalrpc_ddi_prologue(uint32_t ddi_idx, struct daldevice_handle *h,
+							uint32_t idx_async)
 {
 	h->msg.hdr.proto_ver = DALRPC_PROTOCOL_VERSION;
 	h->msg.hdr.prio = 0;
-	h->msg.hdr.async = 0;
+	h->msg.hdr.async = idx_async;
 	h->msg.hdr.msgid = DALRPC_MSGID_DDI;
 	h->msg.hdr.from = h;
 	h->msg.hdr.to = h->remote_handle;
@@ -646,7 +578,7 @@ int daldevice_detach(void *handle)
 	if (!client_exists(h))
 		return -EINVAL;
 
-	dalrpc_ddi_prologue(0, h);
+	dalrpc_ddi_prologue(0, h, 0);
 
 	if (!h->remote_handle)
 		goto norpc;
@@ -674,33 +606,21 @@ uint32_t dalrpc_fcn_0(uint32_t ddi_idx, void *handle, uint32_t s1)
 {
 	struct daldevice_handle *h = handle;
 	uint32_t ret;
-	uint32_t retry_count = 0;
 
 	if (!client_exists(h))
-	{
-		printk(KERN_ERR "client_exists FALSE\n");
 		return -EINVAL;
-	}
-	
+
 	mutex_lock(&h->client_lock);
-again:
-	dalrpc_ddi_prologue(ddi_idx, h);
+
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 4;
 	h->msg.hdr.proto_id = 0;
 	h->msg.param[0] = s1;
-	
+
 	dalrpc_sendwait(h);
-	
+
 	ret = h->msg.param[0];
-	
-	if (ret && retry_count++ < MAX_RETRY_COUNT) {
-		printk(KERN_INFO "*********** %s: %d retry %d times, ret %d\n",
-		       __func__, ddi_idx, retry_count, ret);
-		mdelay(RETRY_DELAY);
-		goto again;
-	}
-	
 	mutex_unlock(&h->client_lock);
 	return ret;
 }
@@ -711,14 +631,13 @@ uint32_t dalrpc_fcn_1(uint32_t ddi_idx, void *handle, uint32_t s1,
 {
 	struct daldevice_handle *h = handle;
 	uint32_t ret;
-	uint32_t retry_count = 0;
 
 	if (!client_exists(h))
 		return -EINVAL;
 
 	mutex_lock(&h->client_lock);
-again:
-	dalrpc_ddi_prologue(ddi_idx, h);
+
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8;
 	h->msg.hdr.proto_id = 1;
@@ -728,14 +647,6 @@ again:
 	dalrpc_sendwait(h);
 
 	ret = h->msg.param[0];
-
-	if (ret && retry_count++ < MAX_RETRY_COUNT) {
-		printk(KERN_INFO "*********** %s: %d retry %d times, ret %d\n",
-		       __func__, ddi_idx, retry_count, ret);
-		mdelay(RETRY_DELAY);
-		goto again;
-	}
-
 	mutex_unlock(&h->client_lock);
 	return ret;
 }
@@ -752,7 +663,7 @@ uint32_t dalrpc_fcn_2(uint32_t ddi_idx, void *handle, uint32_t s1,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 4;
 	h->msg.hdr.proto_id = 2;
@@ -780,7 +691,7 @@ uint32_t dalrpc_fcn_3(uint32_t ddi_idx, void *handle, uint32_t s1,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 12;
 	h->msg.hdr.proto_id = 3;
@@ -807,7 +718,7 @@ uint32_t dalrpc_fcn_4(uint32_t ddi_idx, void *handle, uint32_t s1,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8;
 	h->msg.hdr.proto_id = 4;
@@ -829,8 +740,7 @@ uint32_t dalrpc_fcn_5(uint32_t ddi_idx, void *handle, const void *ibuf,
 		      uint32_t ilen)
 {
 	struct daldevice_handle *h = handle;
-	uint32_t ret;
-	uint32_t retry_count = 0;
+	uint32_t ret, idx_async;
 
 	if ((ilen + 4) > DALRPC_MAX_PARAMS_SIZE)
 		return -EINVAL;
@@ -838,9 +748,11 @@ uint32_t dalrpc_fcn_5(uint32_t ddi_idx, void *handle, const void *ibuf,
 	if (!client_exists(h))
 		return -EINVAL;
 
+	idx_async = (ddi_idx & 0x80000000) >> 31;
+
 	mutex_lock(&h->client_lock);
-again:
-	dalrpc_ddi_prologue(ddi_idx, h);
+
+	dalrpc_ddi_prologue(ddi_idx, h, idx_async);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 4 +
 		ROUND_BUFLEN(ilen);
@@ -850,15 +762,10 @@ again:
 
 	dalrpc_sendwait(h);
 
-	ret = h->msg.param[0];
-
-	if (ret && retry_count++ < MAX_RETRY_COUNT) {
-		printk(KERN_INFO "*********** %s: %d retry %d times, ret %d\n",
-		       __func__, ddi_idx, retry_count, ret);
-		mdelay(RETRY_DELAY);
-		goto again;
-	}
-
+	if (h->msg.hdr.async)
+		ret = DALRPC_SUCCESS;
+	else
+		ret = h->msg.param[0];
 	mutex_unlock(&h->client_lock);
 	return ret;
 }
@@ -869,7 +776,6 @@ uint32_t dalrpc_fcn_6(uint32_t ddi_idx, void *handle, uint32_t s1,
 {
 	struct daldevice_handle *h = handle;
 	uint32_t ret;
-	uint32_t retry_count = 0;
 
 	if ((ilen + 8) > DALRPC_MAX_PARAMS_SIZE)
 		return -EINVAL;
@@ -878,8 +784,8 @@ uint32_t dalrpc_fcn_6(uint32_t ddi_idx, void *handle, uint32_t s1,
 		return -EINVAL;
 
 	mutex_lock(&h->client_lock);
-again:
-	dalrpc_ddi_prologue(ddi_idx, h);
+
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8 +
 		ROUND_BUFLEN(ilen);
@@ -891,14 +797,6 @@ again:
 	dalrpc_sendwait(h);
 
 	ret = h->msg.param[0];
-
-	if (ret && retry_count++ < MAX_RETRY_COUNT) {
-		printk(KERN_INFO "*********** %s: %d retry %d times, ret %d\n",
-		       __func__, ddi_idx, retry_count, ret);
-		mdelay(RETRY_DELAY);
-		goto again;
-	}
-
 	mutex_unlock(&h->client_lock);
 	return ret;
 }
@@ -922,7 +820,7 @@ uint32_t dalrpc_fcn_7(uint32_t ddi_idx, void *handle, const void *ibuf,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8 +
 		ROUND_BUFLEN(ilen);
@@ -965,7 +863,7 @@ uint32_t dalrpc_fcn_8(uint32_t ddi_idx, void *handle, const void *ibuf,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8 +
 		ROUND_BUFLEN(ilen);
@@ -1005,7 +903,7 @@ uint32_t dalrpc_fcn_9(uint32_t ddi_idx, void *handle, void *obuf,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 4;
 	h->msg.hdr.proto_id = 9;
@@ -1044,7 +942,7 @@ uint32_t dalrpc_fcn_10(uint32_t ddi_idx, void *handle, uint32_t s1,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 12 +
 		ROUND_BUFLEN(ilen);
@@ -1086,7 +984,7 @@ uint32_t dalrpc_fcn_11(uint32_t ddi_idx, void *handle, uint32_t s1,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8;
 	h->msg.hdr.proto_id = 11;
@@ -1123,7 +1021,7 @@ uint32_t dalrpc_fcn_12(uint32_t ddi_idx, void *handle, uint32_t s1,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 8;
 	h->msg.hdr.proto_id = 12;
@@ -1164,7 +1062,7 @@ uint32_t dalrpc_fcn_13(uint32_t ddi_idx, void *handle, const void *ibuf,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 12 +
 		ROUND_BUFLEN(ilen) + ROUND_BUFLEN(ilen2);
@@ -1210,7 +1108,7 @@ uint32_t dalrpc_fcn_14(uint32_t ddi_idx, void *handle, const void *ibuf,
 
 	mutex_lock(&h->client_lock);
 
-	dalrpc_ddi_prologue(ddi_idx, h);
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 12 +
 		ROUND_BUFLEN(ilen);
@@ -1262,7 +1160,8 @@ uint32_t dalrpc_fcn_15(uint32_t ddi_idx, void *handle, const void *ibuf,
 		return -EINVAL;
 
 	mutex_lock(&h->client_lock);
-	dalrpc_ddi_prologue(ddi_idx, h);
+
+	dalrpc_ddi_prologue(ddi_idx, h, 0);
 
 	h->msg.hdr.len = sizeof(struct dalrpc_msg_hdr) + 16 +
 		ROUND_BUFLEN(ilen) + ROUND_BUFLEN(ilen2);

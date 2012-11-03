@@ -100,6 +100,9 @@
 
 #include <linux/kmemcheck.h>
 #include <linux/kmemleak.h>
+#include <linux/memory_hotplug.h>
+
+#include <mach/board_htc.h>
 
 /*
  * Kmemleak configuration and common defines.
@@ -113,7 +116,9 @@
 #define BYTES_PER_POINTER	sizeof(void *)
 
 /* GFP bitmask for kmemleak internal allocations */
-#define GFP_KMEMLEAK_MASK	(GFP_KERNEL | GFP_ATOMIC)
+#define gfp_kmemleak_mask(gfp)	(((gfp) & (GFP_KERNEL | GFP_ATOMIC)) | \
+				 __GFP_NORETRY | __GFP_NOMEMALLOC | \
+				 __GFP_NOWARN)
 
 /* scanning area inside a memory block */
 struct kmemleak_scan_area {
@@ -265,7 +270,7 @@ static void kmemleak_disable(void);
 } while (0)
 
 /*
- * Macro invoked when a serious kmemleak condition occured and cannot be
+ * Macro invoked when a serious kmemleak condition occurred and cannot be
  * recovered from. Kmemleak will be disabled and further allocation/freeing
  * tracing no longer available.
  */
@@ -514,9 +519,17 @@ static struct kmemleak_object *create_object(unsigned long ptr, size_t size,
 	struct kmemleak_object *object;
 	struct prio_tree_node *node;
 
-	object = kmem_cache_alloc(object_cache, gfp & GFP_KMEMLEAK_MASK);
+	object = kmem_cache_alloc(object_cache, gfp_kmemleak_mask(gfp));
+	/* Try again with easier GFP allocator flag */
+	if (!object && (get_kernel_flag() & KERNEL_FLAG_KMEMLEAK)) {
+		pr_warning("Fail to allocate object (%dkB),"
+			   " use emergency reserves and try again\n", size << 2);
+		object = kmem_cache_alloc(object_cache,
+			 (~__GFP_NOMEMALLOC & gfp_kmemleak_mask(gfp)));
+	}
 	if (!object) {
-		kmemleak_stop("Cannot allocate a kmemleak_object structure\n");
+		pr_warning("Cannot allocate a kmemleak_object structure\n");
+		kmemleak_disable();
 		return NULL;
 	}
 
@@ -575,10 +588,11 @@ static struct kmemleak_object *create_object(unsigned long ptr, size_t size,
 		kmemleak_stop("Cannot insert 0x%lx into the object search tree "
 			      "(already existing)\n", ptr);
 		object = lookup_object(ptr, 1);
-		spin_lock(&object->lock);
-		dump_object_info(object);
-		spin_unlock(&object->lock);
-
+		if (object) {
+			spin_lock(&object->lock);
+			dump_object_info(object);
+			spin_unlock(&object->lock);
+		}
 		goto out;
 	}
 	list_add_tail_rcu(&object->object_list, &object_list);
@@ -739,9 +753,9 @@ static void add_scan_area(unsigned long ptr, size_t size, gfp_t gfp)
 		return;
 	}
 
-	area = kmem_cache_alloc(scan_area_cache, gfp & GFP_KMEMLEAK_MASK);
+	area = kmem_cache_alloc(scan_area_cache, gfp_kmemleak_mask(gfp));
 	if (!area) {
-		kmemleak_warn("Cannot allocate a scan area\n");
+		pr_warning("Cannot allocate a scan area\n");
 		goto out;
 	}
 
@@ -923,7 +937,7 @@ void __ref kmemleak_not_leak(const void *ptr)
 {
 	pr_debug("%s(0x%p)\n", __func__, ptr);
 
-	if (atomic_read(&kmemleak_enabled) && ptr && !IS_ERR(ptr))
+	if (atomic_read(&kmemleak_initialized) && ptr && !IS_ERR(ptr))
 		make_gray_object((unsigned long)ptr);
 	else if (atomic_read(&kmemleak_early_log))
 		log_early(KMEMLEAK_NOT_LEAK, ptr, 0, 0);
@@ -1008,7 +1022,7 @@ static bool update_checksum(struct kmemleak_object *object)
 
 /*
  * Memory scanning is a long process and it needs to be interruptable. This
- * function checks whether such interrupt condition occured.
+ * function checks whether such interrupt condition occurred.
  */
 static int scan_should_stop(void)
 {
@@ -1177,17 +1191,23 @@ static void scan_gray_list(void)
  * kernel's standard allocators. This function must be called with the
  * scan_mutex held.
  */
+
+static unsigned int kmalloc_cnt[1024];
 static void kmemleak_scan(void)
 {
 	unsigned long flags;
 	struct kmemleak_object *object;
 	int i;
 	int new_leaks = 0;
+	int j;
+	unsigned int leak_max, print_bool = 0;
 
 	jiffies_last_scan = jiffies;
 
 	/* prepare the kmemleak_object's */
 	rcu_read_lock();
+	memset(kmalloc_cnt, 0, sizeof(unsigned int)*1024);
+
 	list_for_each_entry_rcu(object, &object_list, object_list) {
 		spin_lock_irqsave(&object->lock, flags);
 #ifdef DEBUG
@@ -1206,9 +1226,44 @@ static void kmemleak_scan(void)
 		if (color_gray(object) && get_object(object))
 			list_add_tail(&object->gray_list, &gray_list);
 
+		/*Most case the leakage is on 8K, 16K, so filter 4K here*/
+		/* 1023    : pid 0 & 1
+		  * 0~1022 : pid mod 1023 group
+		  */
+		if (object->size > 4096) {
+			if (object->pid == 0 || object->pid == 1)
+				kmalloc_cnt[1023] += object->size;
+			else
+				kmalloc_cnt[object->pid % 1023] += object->size;
+		}
+
 		spin_unlock_irqrestore(&object->lock, flags);
 	}
 	rcu_read_unlock();
+	/*print out the alloc result*/
+	i = 0;
+	leak_max = 0;
+	while (i < 1024) {
+		for (j = 0; j < 10 && i < 1024; j++, i++) {
+			if (kmalloc_cnt[i] != 0) {
+				if (print_bool == 0) {
+					print_bool = 1;
+					pr_info("KMleak: ");
+				}
+				pr_info(", %d[%u]", i, kmalloc_cnt[i]);
+				if (leak_max < kmalloc_cnt[i])
+					leak_max = kmalloc_cnt[i];
+			}
+		}
+		if (print_bool) {
+			pr_info("\n");
+			print_bool = 0;
+		}
+	}
+	pr_info("KMleak: MAX leak alloc times: %u\n", leak_max);
+
+	show_mem(SHOW_MEM_FILTER_NODES);
+	/*print > 8K end*/
 
 	/* data/bss scanning */
 	scan_block(_sdata, _edata, NULL, 1);
@@ -1222,9 +1277,9 @@ static void kmemleak_scan(void)
 #endif
 
 	/*
-	 * Struct page scanning for each node. The code below is not yet safe
-	 * with MEMORY_HOTPLUG.
+	 * Struct page scanning for each node.
 	 */
+	lock_memory_hotplug();
 	for_each_online_node(i) {
 		pg_data_t *pgdat = NODE_DATA(i);
 		unsigned long start_pfn = pgdat->node_start_pfn;
@@ -1243,6 +1298,7 @@ static void kmemleak_scan(void)
 			scan_block(page, page + 1, NULL, 1);
 		}
 	}
+	unlock_memory_hotplug();
 
 	/*
 	 * Scanning the task stacks (may introduce false negatives).
@@ -1421,9 +1477,12 @@ static void *kmemleak_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 	++(*pos);
 
 	list_for_each_continue_rcu(n, &object_list) {
-		next_obj = list_entry(n, struct kmemleak_object, object_list);
-		if (get_object(next_obj))
+		struct kmemleak_object *obj =
+			list_entry(n, struct kmemleak_object, object_list);
+		if (get_object(obj)) {
+			next_obj = obj;
 			break;
+		}
 	}
 
 	put_object(prev_obj);
@@ -1663,8 +1722,6 @@ static int kmemleak_boot_config(char *str)
 }
 early_param("kmemleak", kmemleak_boot_config);
 
-#include <mach/board_htc.h>
-
 /*
  * Kmemleak initialization.
  */
@@ -1674,7 +1731,7 @@ void __init kmemleak_init(void)
 	unsigned long flags;
 
 	/* Switch kmemleak by kernelflag */
-	if (get_kernel_flag() & BIT4)
+	if (get_kernel_flag() & KERNEL_FLAG_KMEMLEAK)
 		kmemleak_skip_disable = 1;
 
 	if (!kmemleak_skip_disable) {
@@ -1749,11 +1806,9 @@ static int __init kmemleak_late_init(void)
 	struct dentry *dentry;
 #endif
 
-	atomic_set(&kmemleak_initialized, 1);
-
 	if (atomic_read(&kmemleak_error)) {
 		/*
-		 * Some error occured and kmemleak was disabled. There is a
+		 * Some error occurred and kmemleak was disabled. There is a
 		 * small chance that kmemleak_disable() was called immediately
 		 * after setting kmemleak_initialized and we may end up with
 		 * two clean-up threads but serialized by scan_mutex.
@@ -1777,6 +1832,7 @@ static int __init kmemleak_late_init(void)
 	mutex_unlock(&scan_mutex);
 
 	pr_info("Kernel memory leak detector initialized\n");
+	atomic_set(&kmemleak_initialized, 1);
 
 	return 0;
 }

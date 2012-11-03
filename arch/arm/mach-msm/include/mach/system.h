@@ -13,14 +13,11 @@
  *
  */
 
-#ifndef __ASM_ARCH_MSM_SYSTEM_H
-#define __ASM_ARCH_MSM_SYSTEM_H
-
 #include <mach/hardware.h>
 
 void arch_idle(void);
 
-#ifdef CONFIG_ARCH_MSM8X60
+#if defined(CONFIG_MSM_NATIVE_RESTART) || defined(CONFIG_ARCH_FSM9XXX)
 void arch_reset(char mode, const char *cmd);
 #else
 static inline void arch_reset(char mode, const char *cmd)
@@ -34,7 +31,5 @@ static inline void arch_reset(char mode, const char *cmd)
  */
 extern void (*msm_hw_reset_hook)(void);
 
-void msm_set_i2c_mux(bool gpio, int *gpio_clk, int *gpio_dat, int clk_str, int dat_str);
-void msm_i2c_gpio_init(void);
-#endif
+void msm_set_i2c_mux(bool gpio, int *gpio_clk, int *gpio_dat);
 

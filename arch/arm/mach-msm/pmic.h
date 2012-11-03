@@ -1,28 +1,13 @@
 /* Copyright (c) 2009, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
@@ -261,7 +246,7 @@ enum pm_vib_mot_pol {
 	PM_VIB_MOT_POL__ACTIVE_LOW,
 };
 
-struct qct_rtc_time {
+struct rtc_time {
 	uint  sec;
 };
 
@@ -269,41 +254,6 @@ enum rtc_alarm {
 	PM_RTC_ALARM_1,
 };
 
-enum hsed_controller {
-	PM_HSED_CONTROLLER_0,
-	PM_HSED_CONTROLLER_1,
-	PM_HSED_CONTROLLER_2,
-};
-
-enum hsed_enable {
-	PM_HSED_ENABLE_OFF,
-	PM_HSED_ENABLE_TCXO,
-	PM_HSED_ENABLE_PWM_TCXO,
-	PM_HSED_ENABLE_ALWAYS,
-};
-
-enum high_current_ledtype {
-	PM_FLASH_DRV0_LED,
-	PM_FLASH_DRV1_LED,
-	PM_KBD_DRV_LED,
-};
-
-enum low_current_ledtype {
-	PM_LOW_CURRENT_LED_DRV0,
-	PM_LOW_CURRENT_LED_DRV1,
-	PM_LOW_CURRENT_LED_DRV2,
-};
-
-enum ext_signal_selection_type {
-	PM_CURRENT_SINK_MANUAL_MODE,
-	PM_CURRENT_SINK_PWM1,
-	PM_CURRENT_SINK_PWM2,
-	PM_CURRENT_SINK_PWM3,
-	PM_CURRENT_SINK_DTEST1,
-	PM_CURRENT_SINK_DTEST2,
-	PM_CURRENT_SINK_DTEST3,
-	PM_CURRENT_SINK_DTEST4,
-};
 
 int pmic_lp_mode_control(enum switch_cmd cmd, enum vreg_lp_id id);
 int pmic_secure_mpp_control_digital_output(enum mpp_which which,
@@ -341,15 +291,5 @@ int pmic_vib_mot_set_mode(enum pm_vib_mot_mode mode);
 int pmic_vib_mot_set_polarity(enum pm_vib_mot_pol pol);
 int pmic_vid_en(uint enable);
 int pmic_vid_load_detect_en(uint enable);
-int pmic_high_current_led_set_current(enum high_current_ledtype type, int milliamps);
-int pmic_high_current_led_set_mode(enum high_current_ledtype type, int mode);
-int pmic_high_current_led_set_polarity(enum high_current_ledtype type, enum flash_led_pol pol);
-int pmic_low_current_led_set_ext_signal(enum low_current_ledtype type,
-					enum ext_signal_selection_type signal_type);
-int pmic_low_current_led_set_current(enum low_current_ledtype type, int milliamps);
 
-int pmic_hsed_enable(
-	enum hsed_controller controller,
-	enum hsed_enable enable
-);
 #endif

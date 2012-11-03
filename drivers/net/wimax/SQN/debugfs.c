@@ -29,8 +29,6 @@ struct sqn_dfs		sqn_dfs = { { 0 } };
 struct sqn_dfs_perf_stat sqn_dfs_pstat = { { { 0 } } };
 static struct dentry	*sqn_dfs_rootdir;
 
-extern int debug;
-
 static void sqn_dfs_init_struct(void)
 {
 	sqn_pr_enter();
@@ -151,14 +149,14 @@ static int sqn_dfs_perf_rx_seq_show(struct seq_file *seq, void *v)
 
 	/* if total_time greater then 1 second we can calculate speed,
 	 * *idx contains paket size */
-	// #define USEC_PER_SEC	1000000L
+	/* #define USEC_PER_SEC	1000000L*/
 	time_in_sec = sqn_dfs_pstat.rx[*idx].total_time / USEC_PER_SEC;
-	if (time_in_sec) {	
+	if (time_in_sec) {
 		/* calculate speed in several steps to avoid overflow */
 		u32 mbytes = (*idx * (sqn_dfs_pstat.rx[*idx].count / 1024)) / 1024;
 		speed =  (mbytes * BITS_PER_BYTE) / time_in_sec;
 	}
-		
+
 	seq_printf(seq, " %6u      %9u   %10u       %6u\n"
 			, *idx, sqn_dfs_pstat.rx[*idx].count
 			, sqn_dfs_pstat.rx[*idx].total_time, speed);
@@ -202,7 +200,24 @@ int sqn_sdio_it_lsb(struct sdio_func *func);
 static ssize_t sqn_dfs_fetch_rx_read(struct file *file, char __user *ubuf,
 		       size_t count, loff_t *ppos)
 {
-	char buf[1024];
+	/* ---------------------------------------------
+	[Build error]
+	warning: the frame size of 1032 bytes is larger than 1024 bytes
+	error, forbidden warning: debugfs.c:216
+
+	[Root Cause]
+	Possible GCC configure change lead to this build error.
+
+	STACK_CHECK_MAX_FRAME_SIZE
+	    The maximum size of a stack frame, in bytes. GNU CC will generate probe instructions in non-leaf functions to ensure at least this many bytes of stack are available. If a stack frame is larger than this size, stack checking will 	not be reliable and GNU CC will issue a warning. The default is chosen so that GNU CC only generates one instruction on most systems. You should normally not change the default value of this macro. 
+
+	[Solution]
+	Decrease buf size from 1024 to 1016. Debugfs is debug module which is not impact wimax function.
+
+	[Date]
+	2012/01/06, Steven Chen
+	 --------------------------------------------- */
+	char buf[1016];
 	int max = sizeof(buf) - 1;
 	int i = 0;
 
@@ -210,7 +225,7 @@ static ssize_t sqn_dfs_fetch_rx_read(struct file *file, char __user *ubuf,
 
 	sdio_claim_host(_g_sqn_sdio_card->func);
 	sqn_sdio_it_lsb(_g_sqn_sdio_card->func);
-	sdio_release_host(_g_sqn_sdio_card->func); 
+	sdio_release_host(_g_sqn_sdio_card->func);
 
 	i += scnprintf(buf + i, max - i, "RX packets fetched\n");
 
@@ -232,11 +247,11 @@ static const struct file_operations sqn_fetch_rx_fops = {
 	.read		= sqn_dfs_fetch_rx_read,
 };
 
-u8* __sqn_sdio_per_file_dbg_addr(void);
-u8* __sqn_main_per_file_dbg_addr(void);
-u8* __sqn_fw_per_file_dbg_addr(void);
-u8* __sqn_pm_per_file_dbg_addr(void);
-u8* __sqn_thp_per_file_dbg_addr(void);
+u8 *__sqn_sdio_per_file_dbg_addr(void);
+u8 *__sqn_main_per_file_dbg_addr(void);
+u8 *__sqn_fw_per_file_dbg_addr(void);
+u8 *__sqn_pm_per_file_dbg_addr(void);
+u8 *__sqn_thp_per_file_dbg_addr(void);
 
 void sqn_dfs_init(void)
 {
@@ -244,20 +259,20 @@ void sqn_dfs_init(void)
 	char		*debug_dir_name	= "dbg";
 
 	struct dentry	*config_dir	= 0;
-	char		*config_dir_name= "cfg";
+	char		*config_dir_name = "cfg";
 
 	struct dentry	*module_dir	= 0;
-	char		*module_dir_name= "modules";
+	char		*module_dir_name = "modules";
 
 	struct dentry	*feature_dir	= 0;
-	char		*feature_dir_name= "features";
+	char		*feature_dir_name = "features";
 	struct dentry	*perf_rx_file	= 0;
 	char		*perf_rx_file_name = "raw_speed_rx";
 
 	char *fetch_rx_file_name = "fetch_rx_packets";
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
-
+/* #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27) */
+#if 1
 	sqn_dfs_init_struct();
 
 	sqn_dfs_rootdir = debugfs_create_dir(SQN_MODULE_NAME, NULL);
@@ -347,7 +362,8 @@ void sqn_dfs_cleanup(void)
 {
 	sqn_pr_enter();
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
+/* #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27) */
+#if 1
 	debugfs_remove_recursive(sqn_dfs_rootdir);
 #endif
 	sqn_dfs_rootdir = 0;

@@ -1,7 +1,9 @@
-/* linux/include/asm-arm/arch-msm/hsusb.h
+/* linux/include/mach/hsusb.h
  *
  * Copyright (C) 2008 Google, Inc.
- * Author: Brian Swetland <swetland@google.com>
+ * Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+* Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -18,11 +20,12 @@
 #define __ASM_ARCH_MSM_HSUSB_H
 
 #include <linux/types.h>
+#include <linux/pm_qos_params.h>
 
 #define PHY_TYPE_MASK		0x0F
 #define PHY_TYPE_MODE		0xF0
 #define PHY_MODEL_MASK		0xFF00
-#define PHY_TYPE(x)		    ((x) & PHY_TYPE_MASK)
+#define PHY_TYPE(x)		((x) & PHY_TYPE_MASK)
 #define PHY_MODEL(x)		((x) & PHY_MODEL_MASK)
 
 #define USB_PHY_MODEL_65NM	0x100
@@ -31,7 +34,7 @@
 #define USB_PHY_UNDEFINED	0x00
 #define USB_PHY_INTEGRATED	0x01
 #define USB_PHY_EXTERNAL	0x02
-#define USB_PHY_SERIAL_PMIC 0x04
+#define USB_PHY_SERIAL_PMIC     0x04
 
 #define REQUEST_STOP		0
 #define REQUEST_START		1
@@ -46,17 +49,18 @@
 #define PHY_ID_B		0x30
 #define PHY_ID_A		0x90
 
-#define phy_id_state(ints)	    ((ints) & PHY_ID_MASK)
+#define phy_id_state(ints)	((ints) & PHY_ID_MASK)
+#define phy_id_state_gnd(ints)	(phy_id_state((ints)) == PHY_ID_GND)
 #define phy_id_state_a(ints)	(phy_id_state((ints)) == PHY_ID_A)
+/* RID_B and RID_C states does not exist with standard ACA */
+#ifdef CONFIG_USB_MSM_STANDARD_ACA
+#define phy_id_state_b(ints)	0
+#define phy_id_state_c(ints)	0
+#else
 #define phy_id_state_b(ints)	(phy_id_state((ints)) == PHY_ID_B)
 #define phy_id_state_c(ints)	(phy_id_state((ints)) == PHY_ID_C)
-#define phy_id_state_gnd(ints)	(phy_id_state((ints)) == PHY_ID_GND)
+#endif
 
-enum hsusb_phy_type {
-	UNDEFINED,
-	INTEGRATED,
-	EXTERNAL,
-};
 /* used to detect the OTG Mode */
 enum otg_mode {
 	OTG_ID = 0,   		/* ID pin detection */
@@ -69,26 +73,6 @@ enum usb_mode {
 	USB_HOST_MODE,
 	USB_PERIPHERAL_MODE,
 };
-struct usb_function_map {
-	char name[20];
-	unsigned bit_pos;
-};
-
-
-/* platform device data for msm_hsusb driver */
-
-#ifdef CONFIG_USB_FUNCTION
-/* matches a product ID to a list of enabled functions */
-struct msm_hsusb_product {
-	/* product ID for usb_device_descriptor.idProduct */
-	__u16 product_id;
-
-	/* bit mask of enabled usb_functions, matching ordering
-	** in msm_hsusb_platform_data.functions
-	*/
-	__u32 functions;
-};
-#endif
 
 enum chg_type {
 	USB_CHG_TYPE__SDP,
@@ -123,6 +107,8 @@ enum hs_drv_amplitude {
 	HS_DRV_AMPLITUDE_75_PERCENT = (3 << 2),
 };
 
+#define HS_DRV_SLOPE_DEFAULT	(-1)
+
 /* used to configure the analog switch to select b/w host and peripheral */
 enum usb_switch_control {
 	USB_SWITCH_PERIPHERAL = 0,	/* Configure switch in peripheral mode*/
@@ -135,88 +121,14 @@ struct msm_hsusb_gadget_platform_data {
 	void (*phy_reset)(void);
 
 	int self_powered;
-};
-
-struct msm_hsusb_platform_data {
-	/* hard reset the ULPI PHY */
-	void (*phy_reset)(void);
-	int self_powered;
-
-	void (*phy_shutdown)(void);
-
-	/* (de)assert the reset to the usb core */
-	void (*hw_reset)(bool enable);
-
-	/* for notification when USB is connected or disconnected */
-	void (*usb_connected)(int);
-	/* 1 : uart, 0 : usb */
-	void (*usb_uart_switch)(int);
-	void (*config_usb_id_gpios)(bool enable);
-	void (*usb_hub_enable)(bool);
-	void (*serial_debug_gpios)(int);
-	int (*china_ac_detect)(void);
-	void (*disable_usb_charger)(void);
-	/* val, reg pairs terminated by -1 */
-	int *phy_init_seq;
-	void (*change_phy_voltage)(int);
-	int (*ldo_init) (int init);
-	int (*ldo_enable) (int enable);
-	int (*rpc_connect)(int);
-	/* 1 : mhl, 0 : usb */
-	void (*usb_mhl_switch)(bool);
-#ifdef CONFIG_USB_FUNCTION
-	/* USB device descriptor fields */
-	__u16 vendor_id;
-
-	/* Default product ID.
-	** This can be overridden dynamically based on the disabled
-	** state of the functions using the product_table.
-	*/
-	__u16 product_id;
-
-	__u16 version;
-	char *product_name;
-	char *manufacturer_name;
-
-	/* list of function drivers to bind to this configuration */
-	int num_functions;
-	char **functions;
-
-	/* if num_products is zero, then the default value in product_id
-	** is used for the configuration descriptor.
-	*/
-	int num_products;
-	struct msm_hsusb_product *products;
-#endif
-	__u16   version;
-	unsigned phy_info;
-	__u16   vendor_id;
-	char   	*product_name;
-	char   	*manufacturer_name;
-	char *serial_number;
-	int usb_id_pin_gpio;
-	int dock_pin_gpio;
-	int id_pin_irq;
-	bool enable_car_kit_detect;
-	__u8 accessory_detect;
-	bool dock_detect;
-
-	int ac_9v_gpio;
-	void (*configure_ac_9v_gpio) (int);
-	int chg_stat_irq;
-
-	char *pclk_src_name;
-
-	unsigned int usb_id2_pin_gpio;
-	void (*usb_host_switch)(int);
+	int is_phy_status_timer_on;
 };
 
 struct msm_otg_platform_data {
 	int (*rpc_connect)(int);
 	int (*phy_reset)(void __iomem *);
-	unsigned int core_clk;
 	int pmic_vbus_irq;
-	unsigned int idgnd_gpio;
+	int pmic_id_irq;
 	/* if usb link is in sps there is no need for
 	 * usb pclk as dayatona fabric clock will be
 	 * used instead
@@ -226,16 +138,16 @@ struct msm_otg_platform_data {
 	enum cdr_auto_reset	cdr_autoreset;
 	enum hs_drv_amplitude	drv_ampl;
 	enum se1_gate_state	se1_gating;
+	int			hsdrvslope;
 	int			phy_reset_sig_inverted;
 	int			phy_can_powercollapse;
 	int			pclk_required_during_lpm;
-
+	int			bam_disable;
 	/* HSUSB core in 8660 has the capability to gate the
 	 * pclk when not being used. Though this feature is
 	 * now being disabled because of H/w issues
 	 */
 	int			pclk_is_hw_gated;
-	char			*pclk_src_name;
 
 	int (*ldo_init) (int init);
 	int (*ldo_enable) (int enable);
@@ -245,6 +157,7 @@ struct msm_otg_platform_data {
 	/* pmic notfications apis */
 	int (*pmic_vbus_notif_init) (void (*callback)(int online), int init);
 	int (*pmic_id_notif_init) (void (*callback)(int online), int init);
+	int (*phy_id_setup_init) (int init);
 	int (*pmic_register_vbus_sn) (void (*callback)(int online));
 	void (*pmic_unregister_vbus_sn) (void (*callback)(int online));
 	int (*pmic_enable_ldo) (int);
@@ -260,10 +173,10 @@ struct msm_otg_platform_data {
 	int  (*chg_init)(int init);
 	int (*config_vddcx)(int high);
 	int (*init_vddcx)(int init);
+	/* 1 : uart, 0 : usb */
+	void (*usb_uart_switch)(int);
 
-	struct pm_qos_request_list *pm_qos_req_dma;
-	int usb_oc_pin;
-	int usb_oc_irq;
+	struct pm_qos_request_list pm_qos_req_dma;
 };
 
 struct msm_usb_host_platform_data {
@@ -275,5 +188,7 @@ struct msm_usb_host_platform_data {
 	struct clk *ebi1_clk;
 };
 
-int usb_get_connect_type(void);
+void htc_mode_enable(int enable);
+int check_htc_mode_status(void);
+
 #endif

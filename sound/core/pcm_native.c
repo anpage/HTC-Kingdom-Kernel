@@ -5,8 +5,7 @@
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
+ *   the Free Software Foundation; only version 2 of the License.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,7 +21,6 @@
 #include <linux/mm.h>
 #include <linux/file.h>
 #include <linux/slab.h>
-#include <linux/smp_lock.h>
 #include <linux/time.h>
 #include <linux/pm_qos_params.h>
 #include <linux/uio.h>
@@ -142,7 +140,7 @@ int snd_pcm_info_user(struct snd_pcm_substream *substream,
 
 #ifdef RULES_DEBUG
 #define HW_PARAM(v) [SNDRV_PCM_HW_PARAM_##v] = #v
-char *snd_pcm_hw_param_names[] = {
+static const char * const snd_pcm_hw_param_names[] = {
 	HW_PARAM(ACCESS),
 	HW_PARAM(FORMAT),
 	HW_PARAM(SUBFORMAT),
@@ -423,6 +421,9 @@ static int snd_pcm_hw_params(struct snd_pcm_substream *substream,
 	runtime->info = params->info;
 	runtime->rate_num = params->rate_num;
 	runtime->rate_den = params->rate_den;
+	runtime->no_period_wakeup =
+			(params->info & SNDRV_PCM_INFO_NO_PERIOD_WAKEUP) &&
+			(params->flags & SNDRV_PCM_HW_PARAMS_NO_PERIOD_WAKEUP);
 
 	bits = snd_pcm_format_physical_width(runtime->format);
 	runtime->sample_bits = bits;
@@ -451,16 +452,14 @@ static int snd_pcm_hw_params(struct snd_pcm_substream *substream,
 	snd_pcm_timer_resolution_change(substream);
 	runtime->status->state = SNDRV_PCM_STATE_SETUP;
 
-	if (substream->latency_pm_qos_req) {
-		pm_qos_remove_request(substream->latency_pm_qos_req);
-		substream->latency_pm_qos_req = NULL;
-	}
+	if (pm_qos_request_active(&substream->latency_pm_qos_req))
+		pm_qos_remove_request(&substream->latency_pm_qos_req);
 	if ((usecs = period_to_usecs(runtime)) >= 0)
-		substream->latency_pm_qos_req = pm_qos_add_request(
-					PM_QOS_CPU_DMA_LATENCY, usecs);
+		pm_qos_add_request(&substream->latency_pm_qos_req,
+				   PM_QOS_CPU_DMA_LATENCY, usecs);
 	return 0;
  _error:
-	/* hardware might be unuseable from this time,
+	/* hardware might be unusable from this time,
 	   so we force application to retry to set
 	   the correct hardware parameter settings */
 	runtime->status->state = SNDRV_PCM_STATE_OPEN;
@@ -512,8 +511,7 @@ static int snd_pcm_hw_free(struct snd_pcm_substream *substream)
 	if (substream->ops->hw_free)
 		result = substream->ops->hw_free(substream);
 	runtime->status->state = SNDRV_PCM_STATE_OPEN;
-	pm_qos_remove_request(substream->latency_pm_qos_req);
-	substream->latency_pm_qos_req = NULL;
+	pm_qos_remove_request(&substream->latency_pm_qos_req);
 	return result;
 }
 
@@ -843,6 +841,7 @@ static int snd_pcm_pre_start(struct snd_pcm_substream *substream, int state)
 	if (runtime->status->state != SNDRV_PCM_STATE_PREPARED)
 		return -EBADFD;
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
+	    !substream->hw_no_buffer &&
 	    !snd_pcm_playback_data(substream))
 		return -EPIPE;
 	runtime->trigger_master = substream;
@@ -867,6 +866,8 @@ static void snd_pcm_post_start(struct snd_pcm_substream *substream, int state)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_trigger_tstamp(substream);
 	runtime->hw_ptr_jiffies = jiffies;
+	runtime->hw_ptr_buffer_jiffies = (runtime->buffer_size * HZ) / 
+							    runtime->rate;
 	runtime->status->state = state;
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 	    runtime->silence_size > 0)
@@ -940,7 +941,7 @@ static struct action_ops snd_pcm_action_stop = {
  *
  * The state of each stream is then changed to the given state unconditionally.
  */
-int snd_pcm_stop(struct snd_pcm_substream *substream, int state)
+int snd_pcm_stop(struct snd_pcm_substream *substream, snd_pcm_state_t state)
 {
 	return snd_pcm_action(&snd_pcm_action_stop, substream, state);
 }
@@ -986,7 +987,7 @@ static int snd_pcm_do_pause(struct snd_pcm_substream *substream, int push)
 	if (push)
 		snd_pcm_update_hw_ptr(substream);
 	/* The jiffies check in snd_pcm_update_hw_ptr*() is done by
-	 * a delta betwen the current jiffies, this gives a large enough
+	 * a delta between the current jiffies, this gives a large enough
 	 * delta, effectively to skip the check once.
 	 */
 	substream->runtime->hw_ptr_jiffies = jiffies - HZ * 1000;
@@ -1480,11 +1481,20 @@ static int snd_pcm_drain(struct snd_pcm_substream *substream,
 			break; /* all drained */
 		init_waitqueue_entry(&wait, current);
 		add_wait_queue(&to_check->sleep, &wait);
-		set_current_state(TASK_INTERRUPTIBLE);
 		snd_pcm_stream_unlock_irq(substream);
 		up_read(&snd_pcm_link_rwsem);
 		snd_power_unlock(card);
-		tout = schedule_timeout(10 * HZ);
+		if (runtime->no_period_wakeup)
+			tout = MAX_SCHEDULE_TIMEOUT;
+		else {
+			tout = 10;
+			if (runtime->rate) {
+				long t = runtime->period_size * 2 / runtime->rate;
+				tout = max(t, tout);
+			}
+			tout = msecs_to_jiffies(tout * 1000);
+		}
+		tout = schedule_timeout_interruptible(tout);
 		snd_power_lock(card);
 		down_read(&snd_pcm_link_rwsem);
 		snd_pcm_stream_lock_irq(substream);
@@ -1517,13 +1527,11 @@ static int snd_pcm_drain(struct snd_pcm_substream *substream,
 static int snd_pcm_drop(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime;
-	struct snd_card *card;
 	int result = 0;
 	
 	if (PCM_RUNTIME_CHECK(substream))
 		return -ENXIO;
 	runtime = substream->runtime;
-	card = substream->pcm->card;
 
 	if (runtime->status->state == SNDRV_PCM_STATE_OPEN ||
 	    runtime->status->state == SNDRV_PCM_STATE_DISCONNECTED ||
@@ -1995,6 +2003,8 @@ void snd_pcm_release_substream(struct snd_pcm_substream *substream)
 		substream->ops->close(substream);
 		substream->hw_opened = 0;
 	}
+	if (pm_qos_request_active(&substream->latency_pm_qos_req))
+		pm_qos_remove_request(&substream->latency_pm_qos_req);
 	if (substream->pcm_release) {
 		substream->pcm_release(substream);
 		substream->pcm_release = NULL;
@@ -2022,6 +2032,12 @@ int snd_pcm_open_substream(struct snd_pcm *pcm, int stream,
 	err = snd_pcm_hw_constraints_init(substream);
 	if (err < 0) {
 		snd_printd("snd_pcm_hw_constraints_init failed\n");
+		goto error;
+	}
+
+	if (substream->ops == NULL) {
+		snd_printd("cannot open back end PCMs directly\n");
+		err = -ENODEV;
 		goto error;
 	}
 
@@ -2053,7 +2069,6 @@ static int snd_pcm_open_file(struct file *file,
 {
 	struct snd_pcm_file *pcm_file;
 	struct snd_pcm_substream *substream;
-	struct snd_pcm_str *str;
 	int err;
 
 	if (rpcm_file)
@@ -2070,7 +2085,6 @@ static int snd_pcm_open_file(struct file *file,
 	}
 	pcm_file->substream = substream;
 	if (substream->ref_count == 1) {
-		str = substream->pstr;
 		substream->file = pcm_file;
 		substream->pcm_release = pcm_release_private;
 	}
@@ -3012,11 +3026,9 @@ static const struct vm_operations_struct snd_pcm_vm_ops_status =
 static int snd_pcm_mmap_status(struct snd_pcm_substream *substream, struct file *file,
 			       struct vm_area_struct *area)
 {
-	struct snd_pcm_runtime *runtime;
 	long size;
 	if (!(area->vm_flags & VM_READ))
 		return -EINVAL;
-	runtime = substream->runtime;
 	size = area->vm_end - area->vm_start;
 	if (size != PAGE_ALIGN(sizeof(struct snd_pcm_mmap_status)))
 		return -EINVAL;
@@ -3051,11 +3063,9 @@ static const struct vm_operations_struct snd_pcm_vm_ops_control =
 static int snd_pcm_mmap_control(struct snd_pcm_substream *substream, struct file *file,
 				struct vm_area_struct *area)
 {
-	struct snd_pcm_runtime *runtime;
 	long size;
 	if (!(area->vm_flags & VM_READ))
 		return -EINVAL;
-	runtime = substream->runtime;
 	size = area->vm_end - area->vm_start;
 	if (size != PAGE_ALIGN(sizeof(struct snd_pcm_mmap_control)))
 		return -EINVAL;
@@ -3197,15 +3207,6 @@ int snd_pcm_lib_mmap_iomem(struct snd_pcm_substream *substream,
 
 EXPORT_SYMBOL(snd_pcm_lib_mmap_iomem);
 #endif /* SNDRV_PCM_INFO_MMAP */
-
-/* mmap callback with pgprot_noncached */
-int snd_pcm_lib_mmap_noncached(struct snd_pcm_substream *substream,
-			       struct vm_area_struct *area)
-{
-	area->vm_page_prot = pgprot_noncached(area->vm_page_prot);
-	return snd_pcm_default_mmap(substream, area);
-}
-EXPORT_SYMBOL(snd_pcm_lib_mmap_noncached);
 
 /*
  * mmap DMA buffer

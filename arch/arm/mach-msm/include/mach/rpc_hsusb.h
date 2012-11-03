@@ -27,7 +27,7 @@
 
 #if defined(CONFIG_MSM_ONCRPCROUTER) && !defined(CONFIG_ARCH_MSM8X60)
 int msm_hsusb_rpc_connect(void);
-void msm_hsusb_phy_reset(void);
+int msm_hsusb_phy_reset(void);
 int msm_hsusb_vbus_powerup(void);
 int msm_hsusb_vbus_shutdown(void);
 int msm_hsusb_reset_rework_installed(void);
@@ -41,6 +41,8 @@ int msm_chg_usb_i_is_available(uint32_t sample);
 int msm_chg_usb_i_is_not_available(void);
 int msm_chg_usb_charger_disconnected(void);
 int msm_chg_rpc_close(void);
+
+int hsusb_rpc_connect(int connect);
 
 #ifdef CONFIG_USB_GADGET_MSM_72K
 int hsusb_chg_init(int connect);

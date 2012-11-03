@@ -59,7 +59,7 @@ struct sqn_sdio_card {
 
 void sqn_sdio_stop_it_thread_from_itself(struct sqn_private *priv);
 
-struct sk_buff* sqn_sdio_prepare_skb_for_tx(struct sk_buff *skb);
+struct sk_buff *sqn_sdio_prepare_skb_for_tx(struct sk_buff *skb);
 
 int sqn_sdio_tx_skb(struct sqn_sdio_card *card, struct sk_buff *skb
 	, u8 claim_host);

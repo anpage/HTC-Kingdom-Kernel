@@ -65,10 +65,9 @@ struct param_struct {
 	    unsigned long initrd_size;		/* 68 */
 	    unsigned long rd_start;		/* 72 */
 	    unsigned long system_rev;		/* 76 */
-	    unsigned long system_rev2;		/* 80 */
-	    unsigned long system_serial_low;	/* 84 */
-	    unsigned long system_serial_high;	/* 88 */
-	    unsigned long mem_fclk_21285;       /* 92 */
+	    unsigned long system_serial_low;	/* 80 */
+	    unsigned long system_serial_high;	/* 84 */
+	    unsigned long mem_fclk_21285;       /* 88 */
 	} s;
 	char unused[256];
     } u1;
@@ -152,8 +151,6 @@ static void __init build_tag_list(struct param_struct *params, void *taglist)
 	tag->hdr.tag = ATAG_REVISION;
 	tag->hdr.size = tag_size(tag_revision);
 	tag->u.revision.rev = params->u1.s.system_rev;
-	if(tag->hdr.size > 3)	/* get MFG revision for driver use. */
-		tag->u.revision.rev2 = params->u1.s.system_rev2;
 
 #ifdef CONFIG_ARCH_ACORN
 	if (machine_is_riscpc()) {
@@ -219,11 +216,4 @@ void __init convert_to_tag_list(struct tag *tags)
 {
 	struct param_struct *params = (struct param_struct *)tags;
 	build_tag_list(params, &params->u2);
-}
-
-void __init squash_mem_tags(struct tag *tag)
-{
-	for (; tag->hdr.size; tag = tag_next(tag))
-		if (tag->hdr.tag == ATAG_MEM)
-			tag->hdr.tag = ATAG_NONE;
 }

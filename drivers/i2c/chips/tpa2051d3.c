@@ -27,11 +27,16 @@
 #include <linux/freezer.h>
 #include <mach/tpa2051d3.h>
 #include <linux/mutex.h>
-#ifndef CONFIG_AMP_TPA2051D3_ON_GPIO
-#include <linux/mfd/pmic8058.h>
-#endif
 
+#include <linux/gpio.h>
+#include <linux/mfd/pm8xxx/pm8921.h>
+
+
+#ifdef CONFIG_AMP_TPA2051D3_ON_GPIO
+#define DEBUG (1)
+#else
 #define DEBUG (0)
+#endif
 #define AMP_ON_CMD_LEN 7
 #define RETRY_CNT 5
 static struct i2c_client *this_client;
@@ -49,18 +54,13 @@ static char RING_AMP_ON[] =
 			{0x00, 0x8E, 0x25, 0x57, 0x8D, 0xCD, 0x0D};
 static char HANDSET_AMP_ON[] =
 			{0x00, 0x82, 0x25, 0x57, 0x13, 0xCD, 0x0D};
+static char BEATS_AMP_ON[] =
+			{0x00, 0x8C, 0x25, 0x57, 0x73, 0x4D, 0x0D};
+static char BEATS_AMP_OFF[] =
+			{0x00, 0x8C, 0x25, 0x57, 0x73, 0x4D, 0x0D};
+static char LINEOUT_AMP_ON[] =
+			{0x00, 0x8C, 0x25, 0x57, 0x73, 0x4D, 0x0D};
 static char AMP_0FF[] = {0x00, 0x90};
-
-#ifndef CONFIG_AMP_TPA2051D3_ON_GPIO
-struct pm8058_gpio tpa2051pwr = {
-	.direction      = PM_GPIO_DIR_OUT,
-	.output_buffer  = PM_GPIO_OUT_BUF_CMOS,
-	.output_value   = 0,
-	.pull           = PM_GPIO_PULL_NO,
-	.out_strength   = PM_GPIO_STRENGTH_HIGH,
-	.function       = PM_GPIO_FUNC_NORMAL,
-};
-#endif
 
 static int tpa2051_write_reg(u8 reg, u8 val)
 {
@@ -99,9 +99,9 @@ static int tpa2051_i2c_write(char *txData, int length)
 			mdelay(1);
 		buf[0] = i;
 		buf[1] = txData[i];
-/* #if DEBUG */
-		pr_debug("i2c_write %d=%x\n", i, buf[1]);
-/* #endif */
+#if DEBUG
+		pr_info("i2c_write %d=%x\n", i, buf[1]);
+#endif
 		msg->buf = buf;
 		retry = RETRY_CNT;
 		pass = 0;
@@ -140,9 +140,9 @@ static int tpa2051_i2c_write_for_read(char *txData, int length)
 			mdelay(1);
 		buf[0] = i;
 		buf[1] = txData[i];
-/* #if DEBUG */
+#if DEBUG
 		pr_info("i2c_write %d=%x\n", i, buf[1]);
-/* #endif */
+#endif
 		msg->buf = buf;
 		retry = RETRY_CNT;
 		pass = 0;
@@ -221,12 +221,12 @@ static int tpa2051d3_release(struct inode *inode, struct file *file)
 }
 void set_amp(int on, char *i2c_command)
 {
-	pr_aud_info("%s: %d\n", __func__, on);
+	pr_info("%s: %d\n", __func__, on);
 	mutex_lock(&spk_amp_lock);
 	if (on && !last_spkamp_state) {
 		if (tpa2051_i2c_write(i2c_command, AMP_ON_CMD_LEN) == 0) {
 			last_spkamp_state = 1;
-			pr_aud_info("%s: ON reg1=%x, reg2=%x\n",
+			pr_info("%s: ON reg1=%x, reg2=%x\n",
 				__func__, i2c_command[1], i2c_command[2]);
 		}
 	} else if (!on && last_spkamp_state) {
@@ -258,6 +258,27 @@ void set_handset_amp(int on)
 	set_amp(on, HANDSET_AMP_ON);
 }
 
+void set_usb_audio_amp(int on)
+{
+	set_amp(on, LINEOUT_AMP_ON);
+}
+
+void set_beats_on(int en)
+{
+	pr_aud_info("%s: %d\n", __func__, en);
+	mutex_lock(&spk_amp_lock);
+	if (en) {
+		tpa2051_i2c_write(BEATS_AMP_ON, AMP_ON_CMD_LEN);
+		pr_info("%s: en(%d) reg_value[5]=%2x, reg_value[6]=%2x\n", __func__,  \
+				en, BEATS_AMP_ON[5], BEATS_AMP_ON[6]);
+	} else {
+		tpa2051_i2c_write(BEATS_AMP_OFF, AMP_ON_CMD_LEN);
+		pr_info("%s: en(%d)  reg_value[5]=%2x, reg_value[6]=%2x\n", __func__,  \
+				en, BEATS_AMP_OFF[5], BEATS_AMP_OFF[6]);
+	}
+	mutex_unlock(&spk_amp_lock);
+}
+
 int update_amp_parameter(int mode)
 {
 	if (mode > tpa2051_mode_cnt)
@@ -274,21 +295,28 @@ int update_amp_parameter(int mode)
 	else if (*(config_data + mode * MODE_CMD_LEM + 1) == HANDSET_OUTPUT)
 		memcpy(HANDSET_AMP_ON, config_data + mode * MODE_CMD_LEM + 2,
 				sizeof(HANDSET_AMP_ON));
+	else if (*(config_data + mode * MODE_CMD_LEM + 1) == BEATS_ON_OUTPUT)
+		memcpy(BEATS_AMP_ON, config_data + mode * MODE_CMD_LEM + 2,
+				sizeof(BEATS_AMP_ON));
+	else if (*(config_data + mode * MODE_CMD_LEM + 1) == BEATS_OFF_OUTPUT)
+		memcpy(BEATS_AMP_OFF, config_data + mode * MODE_CMD_LEM + 2,
+				sizeof(BEATS_AMP_OFF));
+	else if (*(config_data + mode * MODE_CMD_LEM + 1) == LINEOUT_OUTPUT)
+		memcpy(LINEOUT_AMP_ON, config_data + mode * MODE_CMD_LEM + 2,
+				sizeof(LINEOUT_AMP_ON));
 	else {
-		pr_err("wrong mode id %d\n", mode);
+		pr_aud_info("wrong mode id %d\n", mode);
 		return -EINVAL;
 	}
 	return 0;
 }
-static int
-tpa2051d3_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
+
+
+static long tpa2051d3_ioctl(struct file *file, unsigned int cmd,
 	   unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
 	int rc = 0, modeid = 0;
-#if DEBUG
-	int i = 0;
-#endif
 	unsigned char tmp[7];
 	unsigned char reg_idx[1] = {0x01};
 	unsigned char spk_cfg[8];
@@ -300,11 +328,6 @@ tpa2051d3_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		pr_info("%s: TPA2051_WRITE_REG\n", __func__);
 		mutex_lock(&spk_amp_lock);
 		if (!last_spkamp_state) {
-#ifndef CONFIG_AMP_TPA2051D3_ON_GPIO
-			tpa2051pwr.output_value = 1;
-			rc = pm8058_gpio_config(pdata->gpio_tpa2051_spk_en,
-							&tpa2051pwr);
-#endif
 			/* According to tpa2051d3 Spec */
 			mdelay(30);
 		}
@@ -315,13 +338,6 @@ tpa2051d3_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		rc = tpa2051_write_reg(reg_value[0], reg_value[1]);
 
 err1:
-		if (!last_spkamp_state) {
-#ifndef CONFIG_AMP_TPA2051D3_ON_GPIO
-			tpa2051pwr.output_value = 0;
-			pm8058_gpio_config(pdata->gpio_tpa2051_spk_en,
-						&tpa2051pwr);
-#endif
-		}
 		mutex_unlock(&spk_amp_lock);
 		break;
 	case TPA2051_SET_CONFIG:
@@ -336,17 +352,15 @@ err1:
 		else if (spk_cfg[0] == DUAL_OUTPUT)
 			memcpy(RING_AMP_ON, spk_cfg + 1,
 					sizeof(RING_AMP_ON));
+		else if (spk_cfg[0] == LINEOUT_OUTPUT)
+			memcpy(LINEOUT_AMP_ON, spk_cfg + 1,
+					sizeof(LINEOUT_AMP_ON));
 		else
 			return -EINVAL;
 		break;
 	case TPA2051_READ_CONFIG:
 		mutex_lock(&spk_amp_lock);
 		if (!last_spkamp_state) {
-#ifndef CONFIG_AMP_TPA2051D3_ON_GPIO
-			tpa2051pwr.output_value = 1;
-			rc = pm8058_gpio_config(pdata->gpio_tpa2051_spk_en,
-							&tpa2051pwr);
-#endif
 			/* According to tpa2051d3 Spec */
 			mdelay(30);
 		}
@@ -362,13 +376,6 @@ err1:
 		if (copy_to_user(argp, &tmp, sizeof(tmp)))
 			rc = -EFAULT;
 err2:
-		if (!last_spkamp_state) {
-#ifndef CONFIG_AMP_TPA2051D3_ON_GPIO
-			tpa2051pwr.output_value = 0;
-			pm8058_gpio_config(pdata->gpio_tpa2051_spk_en,
-						&tpa2051pwr);
-#endif
-		}
 		mutex_unlock(&spk_amp_lock);
 		break;
 	case TPA2051_SET_MODE:
@@ -380,7 +387,7 @@ err2:
 			return -EINVAL;
 		}
 		rc = update_amp_parameter(modeid);
-		pr_aud_info("set tpa2051 mode to %d\n", modeid);
+		pr_info("set tpa2051 mode to %d\n", modeid);
 		break;
 	case TPA2051_SET_PARAM:
 		cfg.cmd_data = 0;
@@ -408,13 +415,15 @@ err2:
 			return -EFAULT;
 		}
 		tpa2051_mode_cnt = cfg.mode_num;
-		pr_aud_info("%s: update tpa2051 i2c commands #%d success.\n",
+		pr_info("%s: update tpa2051 i2c commands #%d success.\n",
 				__func__, cfg.data_len);
 		/* update default paramater from csv*/
 		update_amp_parameter(TPA2051_MODE_PLAYBACK_SPKR);
 		update_amp_parameter(TPA2051_MODE_PLAYBACK_HEADSET);
 		update_amp_parameter(TPA2051_MODE_RING);
-		update_amp_parameter(TPA2051_MODE_HANDSET);
+		update_amp_parameter(TPA2051_MODE_PLAYBACK_HEADSET_BEATS_ON);
+		update_amp_parameter(TPA2051_MODE_PLAYBACK_HEADSET_BEATS_OFF);
+		update_amp_parameter(TPA2051_MODE_LINEOUT);
 		rc = 0;
 		break;
 	default:
@@ -429,7 +438,7 @@ static struct file_operations tpa2051d3_fops = {
 	.owner = THIS_MODULE,
 	.open = tpa2051d3_open,
 	.release = tpa2051d3_release,
-	.ioctl = tpa2051d3_ioctl,
+	.unlocked_ioctl = tpa2051d3_ioctl,
 };
 
 static struct miscdevice tpa2051d3_device = {
@@ -523,7 +532,7 @@ static struct i2c_driver tpa2051d3_driver = {
 
 static int __init tpa2051d3_init(void)
 {
-	pr_aud_info("%s\n", __func__);
+	pr_info("%s\n", __func__);
 	mutex_init(&spk_amp_lock);
 	return i2c_add_driver(&tpa2051d3_driver);
 }
